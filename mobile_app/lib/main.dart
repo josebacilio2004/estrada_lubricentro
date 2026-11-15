@@ -20,22 +20,35 @@ void main() {
 }
 
 // ============================================================================
-// SYSTEM DESIGN TOKENS (Idénticos al Sistema Web Lubricentros Estrada)
+// INFORMACIÓN DE VERSIÓN DE LA APP
+// ============================================================================
+class EstradaAppVersion {
+  static const String version = '1.2.0';
+  static const int buildNumber = 2;
+  static const String releaseDate = 'Noviembre 2026';
+  static const String codename = 'Laser Focus HD';
+  static const String fullString = 'v$version (Build $buildNumber)';
+}
+
+// ============================================================================
+// SYSTEM DESIGN TOKENS (Idénticos al ERP Web Lubricentros Estrada)
 // ============================================================================
 class EstradaTheme {
   static const Color ink950 = Color(0xFF0B0D12);
   static const Color ink900 = Color(0xFF101217);
   static const Color panelBg = Color(0xFF151820);
-  static const Color cardBg = Color(0xFF1B1F28);
+  static const Color cardBg = Color(0xFF1A1E27);
+  static const Color cardSubtle = Color(0xFF222734);
   static const Color ember500 = Color(0xFFF26A1B);
   static const Color ember600 = Color(0xFFD9560E);
   static const Color amber400 = Color(0xFFF59E0B);
   static const Color emerald400 = Color(0xFF10B981);
+  static const Color emerald500 = Color(0xFF059669);
   static const Color red400 = Color(0xFFEF4444);
   static const Color textHi = Color(0xFFF9FAFB);
   static const Color textLo = Color(0xFF9CA3AF);
   static const Color textDim = Color(0xFF6B7280);
-  static const Color borderSubtle = Color(0x18FFFFFF);
+  static const Color borderSubtle = Color(0x1FFFFFFF);
 }
 
 class EstradaErpMobileApp extends StatelessWidget {
@@ -65,7 +78,7 @@ class EstradaErpMobileApp extends StatelessWidget {
 }
 
 // ============================================================================
-// MODELOS DE DATOS CONECTADOS A POSTGRESQL (CONTENEDOR DOCKER)
+// MODELOS DE DATOS CONECTADOS A POSTGRESQL (DOCKER)
 // ============================================================================
 class ProductModel {
   final String id;
@@ -118,34 +131,380 @@ class ProductModel {
       id: (json['id'] ?? '').toString(),
       sku: (json['sku'] ?? '').toString(),
       barcode: (json['barcode'] ?? '').toString(),
-      name: (json['name'] ?? '').toString(),
+      name: (json['name'] ?? 'Producto sin nombre').toString(),
       description: (json['description'] ?? '').toString(),
       categoryId: (json['category_id'] ?? '').toString(),
       brandId: (json['brand_id'] ?? '').toString(),
-      presentation: (json['presentation'] ?? '1 Unidad').toString(),
-      purchasePrice: double.tryParse((json['purchase_price'] ?? '0').toString()) ?? 0.0,
-      salePrice: double.tryParse((json['sale_price'] ?? '0').toString()) ?? 0.0,
-      stockCurrent: double.tryParse((json['stock_current'] ?? '0').toString()) ?? 0.0,
-      stockMin: double.tryParse((json['stock_min'] ?? '5').toString()) ?? 5.0,
-      imageUrl: (json['image_url'] ?? '/media/line-synthetic.png').toString(),
-      brandName: (json['brand_name'] ?? 'Estrada').toString(),
-      categoryName: (json['category_name'] ?? 'Lubricantes').toString(),
-      viscosity: (specs['viscosity'] ?? '5W-30').toString(),
-      oilType: (specs['oil_type'] ?? 'Full Sintético').toString(),
-      apiNorm: (specs['api_norm'] ?? 'API SP').toString(),
-      lifespanKm: int.tryParse((specs['lifespan_km'] ?? '10000').toString()) ?? 10000,
+      presentation: (json['presentation'] ?? 'Unidad').toString(),
+      purchasePrice: _toDouble(json['purchase_price']),
+      salePrice: _toDouble(json['sale_price']),
+      stockCurrent: _toDouble(json['stock_current']),
+      stockMin: _toDouble(json['stock_min']),
+      imageUrl: (json['image_url'] ?? '').toString(),
+      brandName: (json['brand_name'] ?? '').toString(),
+      categoryName: (json['category_name'] ?? '').toString(),
+      viscosity: (specs['viscosity'] ?? '').toString(),
+      oilType: (specs['oil_type'] ?? '').toString(),
+      apiNorm: (specs['api_norm'] ?? '').toString(),
+      lifespanKm: (specs['lifespan_km'] is int)
+          ? specs['lifespan_km'] as int
+          : int.tryParse(specs['lifespan_km']?.toString() ?? '5000') ?? 5000,
     );
+  }
+
+  static double _toDouble(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is num) return val.toDouble();
+    return double.tryParse(val.toString()) ?? 0.0;
   }
 }
 
 class PosCartItem {
   final ProductModel product;
   int quantity;
+
   PosCartItem({required this.product, this.quantity = 1});
+
+  double get subtotal => product.salePrice * quantity;
 }
 
 // ============================================================================
-// SHELL PRINCIPAL CON LAS 2 FUNCIONALIDADES + CATÁLOGO DE PRODUCTOS
+// COMPONENTE VISOR DE CÁMARA HD CON ZOOM ÓPTICO Y LÁSER ESTRADA
+// ============================================================================
+class EstradaCameraViewfinder extends StatefulWidget {
+  final MobileScannerController controller;
+  final Function(String code) onBarcodeDetected;
+  final double height;
+  final String statusHint;
+  final Color accentColor;
+
+  const EstradaCameraViewfinder({
+    super.key,
+    required this.controller,
+    required this.onBarcodeDetected,
+    this.height = 260,
+    this.statusHint = 'Centra el código de barras aquí',
+    this.accentColor = EstradaTheme.ember500,
+  });
+
+  @override
+  State<EstradaCameraViewfinder> createState() => _EstradaCameraViewfinderState();
+}
+
+class _EstradaCameraViewfinderState extends State<EstradaCameraViewfinder>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animCtrl;
+  late Animation<double> _scanLineAnim;
+  bool _torchOn = false;
+  double _zoomScale = 0.0; // 0.0 = 1x, 0.28 = 1.5x, 0.55 = 2.0x
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+    _scanLineAnim = Tween<double>(begin: 0.15, end: 0.85).animate(
+      CurvedAnimation(parent: _animCtrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _setZoom(double zoom) async {
+    setState(() => _zoomScale = zoom);
+    try {
+      await widget.controller.setZoomScale(zoom);
+      HapticFeedback.selectionClick();
+    } catch (_) {}
+  }
+
+  Future<void> _toggleTorch() async {
+    setState(() => _torchOn = !_torchOn);
+    try {
+      await widget.controller.toggleTorch();
+      HapticFeedback.lightImpact();
+    } catch (_) {}
+  }
+
+  Future<void> _switchCamera() async {
+    try {
+      await widget.controller.switchCamera();
+      HapticFeedback.lightImpact();
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: widget.height,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: EstradaTheme.borderSubtle, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(21),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Cámara HD con Autoenfoque continuo
+            MobileScanner(
+              controller: widget.controller,
+              onDetect: (capture) {
+                for (final b in capture.barcodes) {
+                  final raw = b.rawValue;
+                  if (raw != null && raw.trim().isNotEmpty) {
+                    HapticFeedback.mediumImpact();
+                    widget.onBarcodeDetected(raw.trim());
+                    break;
+                  }
+                }
+              },
+            ),
+
+            // Sombra perimetral para oscurecer fuera del área de foco
+            Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  radius: 0.95,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.55),
+                  ],
+                ),
+              ),
+            ),
+
+            // Marco con esquinas láser iluminadas
+            SizedBox(
+              width: 250,
+              height: 140,
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: _buildCorner(top: true, left: true),
+                  ),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: _buildCorner(top: true, left: false),
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    child: _buildCorner(top: false, left: true),
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: _buildCorner(top: false, left: false),
+                  ),
+
+                  // Haz láser animado en movimiento vertical
+                  AnimatedBuilder(
+                    animation: _scanLineAnim,
+                    builder: (ctx, _) {
+                      return Positioned(
+                        top: 140 * _scanLineAnim.value,
+                        left: 10,
+                        right: 10,
+                        child: Container(
+                          height: 2,
+                          decoration: BoxDecoration(
+                            color: widget.accentColor,
+                            boxShadow: [
+                              BoxShadow(
+                                color: widget.accentColor.withValues(alpha: 0.9),
+                                blurRadius: 10,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+            // Barra Superior de Controles de Cámara (Linterna y Cambiar Lente)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _glassCircleButton(
+                    icon: _torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                    color: _torchOn ? EstradaTheme.amber400 : Colors.white70,
+                    active: _torchOn,
+                    tooltip: 'Linterna',
+                    onTap: _toggleTorch,
+                  ),
+                  const SizedBox(width: 8),
+                  _glassCircleButton(
+                    icon: Icons.flip_camera_ios_rounded,
+                    color: Colors.white70,
+                    active: false,
+                    tooltip: 'Rotar Cámara',
+                    onTap: _switchCamera,
+                  ),
+                ],
+              ),
+            ),
+
+            // Selector Rápido de Zoom (1.0x / 1.5x / 2.0x) para enfocar sin acercar demasiado el teléfono
+            Positioned(
+              bottom: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: EstradaTheme.borderSubtle),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _zoomPill('1.0x', 0.0),
+                    const SizedBox(width: 4),
+                    _zoomPill('1.5x', 0.28),
+                    const SizedBox(width: 4),
+                    _zoomPill('2.0x', 0.55),
+                  ],
+                ),
+              ),
+            ),
+
+            // Píldora de estado en la parte superior izquierda
+            Positioned(
+              top: 12,
+              left: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: widget.accentColor.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: widget.accentColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      widget.statusHint,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCorner({required bool top, required bool left}) {
+    const double size = 22;
+    const double width = 3;
+    final color = widget.accentColor;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        border: Border(
+          top: top ? BorderSide(color: color, width: width) : BorderSide.none,
+          bottom: !top ? BorderSide(color: color, width: width) : BorderSide.none,
+          left: left ? BorderSide(color: color, width: width) : BorderSide.none,
+          right: !left ? BorderSide(color: color, width: width) : BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _glassCircleButton({
+    required IconData icon,
+    required Color color,
+    required bool active,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: active
+              ? EstradaTheme.amber400.withValues(alpha: 0.25)
+              : Colors.black.withValues(alpha: 0.65),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: active ? EstradaTheme.amber400 : Colors.white24,
+            width: 1.2,
+          ),
+        ),
+        child: Icon(icon, color: color, size: 18),
+      ),
+    );
+  }
+
+  Widget _zoomPill(String label, double zoomVal) {
+    final isSelected = (_zoomScale - zoomVal).abs() < 0.1;
+    return InkWell(
+      onTap: () => _setZoom(zoomVal),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? widget.accentColor : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : EstradaTheme.textLo,
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// SHELL PRINCIPAL CON GESTIÓN DE TÚNEL Y PESTAÑAS
 // ============================================================================
 class EstradaMainShell extends StatefulWidget {
   const EstradaMainShell({super.key});
@@ -157,7 +516,6 @@ class EstradaMainShell extends StatefulWidget {
 class _EstradaMainShellState extends State<EstradaMainShell> {
   int _selectedIndex = 0;
 
-  // Presets de conexión hacia el contenedor Docker (Caddy :8088 / Go API :8085)
   static const String defaultTunnelUrl =
       'https://sharing-carbon-trade-certificate.trycloudflare.com';
   static const String defaultLanUrl = 'http://192.168.1.8:8088';
@@ -258,19 +616,12 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
           final list = (body['data'] as List)
               .map((e) => ProductModel.fromJson(e as Map<String, dynamic>))
               .toList();
-          if (mounted) {
-            setState(() {
-              _products = list;
-              _isConnected = true;
-            });
-          }
+          setState(() {
+            _products = list;
+          });
         }
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _isConnected = false);
-      }
-    }
+    } catch (_) {}
   }
 
   Future<void> _fetchCategories() async {
@@ -281,13 +632,14 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
       if (res.statusCode == 200) {
         final body = jsonDecode(utf8.decode(res.bodyBytes));
         if (body['success'] == true && body['data'] is List) {
-          final list = (body['data'] as List)
-              .map((e) => {
-                    'id': (e['id'] ?? '').toString(),
-                    'name': (e['name'] ?? '').toString(),
-                  })
-              .toList();
-          if (mounted) setState(() => _categories = list);
+          setState(() {
+            _categories = (body['data'] as List)
+                .map((e) => {
+                      'id': e['id'].toString(),
+                      'name': e['name'].toString(),
+                    })
+                .toList();
+          });
         }
       }
     } catch (_) {}
@@ -301,16 +653,185 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
       if (res.statusCode == 200) {
         final body = jsonDecode(utf8.decode(res.bodyBytes));
         if (body['success'] == true && body['data'] is List) {
-          final list = (body['data'] as List)
-              .map((e) => {
-                    'id': (e['id'] ?? '').toString(),
-                    'name': (e['name'] ?? '').toString(),
-                  })
-              .toList();
-          if (mounted) setState(() => _brands = list);
+          setState(() {
+            _brands = (body['data'] as List)
+                .map((e) => {
+                      'id': e['id'].toString(),
+                      'name': e['name'].toString(),
+                    })
+                .toList();
+          });
         }
       }
     } catch (_) {}
+  }
+
+  Future<void> _sendProductToPosWeb(ProductModel prod) async {
+    try {
+      final clean =
+          _baseUrl.endsWith('/') ? _baseUrl.substring(0, _baseUrl.length - 1) : _baseUrl;
+      final res = await http.post(
+        Uri.parse('$clean/v1/pos/scan'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'barcode': prod.barcode.isNotEmpty ? prod.barcode : prod.sku,
+          'quantity': 1,
+          'session_id': 'estrada_mobile_session',
+        }),
+      );
+      if (res.statusCode == 200) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: EstradaTheme.emerald500,
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '¡${prod.name} cargado en POS Web!',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: EstradaTheme.red400,
+          content: Text('Error al enviar al POS Web: $e'),
+        ),
+      );
+    }
+  }
+
+  void _showAppVersionDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: EstradaTheme.cardBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: EstradaTheme.borderSubtle),
+        ),
+        title: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: EstradaTheme.ember500,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: const Text(
+                'E',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Estrada ERP Mobile',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  EstradaAppVersion.fullString,
+                  style: TextStyle(
+                    color: EstradaTheme.ember500,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _versionRow('Versión:', EstradaAppVersion.version),
+            _versionRow('Compilación:', 'Build ${EstradaAppVersion.buildNumber} (${EstradaAppVersion.releaseDate})'),
+            _versionRow('Cámara:', 'HD 1080p + Zoom Táctil (1x / 1.5x / 2x)'),
+            _versionRow('Escáner:', 'EAN-13, EAN-8, Code 128, QR'),
+            _versionRow('Base de Datos:', 'PostgreSQL Docker (Media Blobs)'),
+            _versionRow('Sincronización:', 'En tiempo real con POS Web'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: EstradaTheme.ink950,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: EstradaTheme.borderSubtle),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isConnected ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                    color: _isConnected ? EstradaTheme.emerald400 : EstradaTheme.red400,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _isConnected ? 'Conectado a Docker: $_baseUrl' : 'Desconectado del servidor',
+                      style: const TextStyle(fontSize: 11, color: EstradaTheme.textLo),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CERRAR', style: TextStyle(color: EstradaTheme.ember500, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _versionRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 95,
+            child: Text(
+              label,
+              style: const TextStyle(color: EstradaTheme.textDim, fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(color: EstradaTheme.textHi, fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showServerSettingsDialog() {
@@ -318,9 +839,9 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: EstradaTheme.panelBg,
+      backgroundColor: EstradaTheme.cardBg,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return Padding(
@@ -336,10 +857,8 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.dns_rounded, color: EstradaTheme.ember500, size: 20),
-                  const SizedBox(width: 8),
                   const Text(
-                    'CONEXIÓN A CONTENEDORES DOCKER',
+                    'CONEXIÓN A DOCKER',
                     style: TextStyle(
                       color: EstradaTheme.ember500,
                       fontWeight: FontWeight.bold,
@@ -423,7 +942,7 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
                   },
                   icon: const Icon(Icons.sync_rounded, size: 18),
                   label: const Text(
-                    'GUARDAR Y SINCRONIZAR CON CONTENEDOR',
+                    'GUARDAR Y CONECTAR',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
                 ),
@@ -437,14 +956,13 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
 
   Widget _presetChip(String label, String url, TextEditingController ctrl) {
     return ActionChip(
-      backgroundColor: EstradaTheme.cardBg,
+      backgroundColor: EstradaTheme.ink950,
       side: const BorderSide(color: EstradaTheme.borderSubtle),
       label: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
       onPressed: () => ctrl.text = url,
     );
   }
 
-  // Abre el modal para Crear o Editar un Producto con soporte de Cámara/Galería y Enlace URL
   void _openProductEditorModal({ProductModel? existing, String? prefilledBarcode}) {
     showModalBottomSheet(
       context: context,
@@ -497,30 +1015,55 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                RichText(
-                  text: const TextSpan(
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.5,
-                      color: Colors.white,
-                    ),
-                    children: [
-                      TextSpan(text: 'ESTRAD'),
-                      TextSpan(
-                        text: 'A',
-                        style: TextStyle(color: EstradaTheme.ember500),
-                      ),
-                      TextSpan(
-                        text: ' ERP',
+                Row(
+                  children: [
+                    RichText(
+                      text: const TextSpan(
                         style: TextStyle(
-                          color: EstradaTheme.textLo,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.5,
+                          color: Colors.white,
+                        ),
+                        children: [
+                          TextSpan(text: 'ESTRAD'),
+                          TextSpan(
+                            text: 'A',
+                            style: TextStyle(color: EstradaTheme.ember500),
+                          ),
+                          TextSpan(
+                            text: ' ERP',
+                            style: TextStyle(
+                              color: EstradaTheme.textLo,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: _showAppVersionDialog,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: EstradaTheme.ember500.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: EstradaTheme.ember500.withValues(alpha: 0.4)),
+                        ),
+                        child: const Text(
+                          'v${EstradaAppVersion.version}',
+                          style: TextStyle(
+                            color: EstradaTheme.ember500,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Row(
@@ -538,10 +1081,10 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
                     const SizedBox(width: 5),
                     Text(
                       _checkingConnection
-                          ? 'Conectando a PostgreSQL...'
+                          ? 'Conectando a Docker...'
                           : (_isConnected
-                              ? 'PostgreSQL Docker Online (${_products.length} SKUs)'
-                              : 'Sin conexión — Toque el ícono de red'),
+                              ? 'PostgreSQL Online (${_products.length} SKUs)'
+                              : 'Sin conexión — Configurar'),
                       style: const TextStyle(
                         fontSize: 10,
                         color: EstradaTheme.textLo,
@@ -556,12 +1099,12 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Refrescar Base de Datos',
+            tooltip: 'Refrescar Datos',
             onPressed: _loadAllData,
             icon: const Icon(Icons.refresh_rounded, color: EstradaTheme.textLo, size: 20),
           ),
           IconButton(
-            tooltip: 'Configurar Servidor Docker',
+            tooltip: 'Configurar Conexión',
             onPressed: _showServerSettingsDialog,
             icon: Icon(
               Icons.settings_ethernet_rounded,
@@ -621,9 +1164,8 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
           border: Border(top: BorderSide(color: EstradaTheme.borderSubtle)),
         ),
         child: NavigationBar(
-          height: 68,
           backgroundColor: EstradaTheme.panelBg,
-          indicatorColor: EstradaTheme.ember500.withValues(alpha: 0.2),
+          indicatorColor: EstradaTheme.ember500.withValues(alpha: 0.25),
           selectedIndex: _selectedIndex,
           onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
           destinations: [
@@ -635,14 +1177,14 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
             NavigationDestination(
               icon: Badge(
                 isLabelVisible: _posCart.isNotEmpty,
+                label: Text('${_posCart.fold(0, (sum, i) => sum + i.quantity)}'),
                 backgroundColor: EstradaTheme.ember500,
-                label: Text('${_posCart.fold<int>(0, (a, b) => a + b.quantity)}'),
                 child: const Icon(Icons.point_of_sale_rounded, color: EstradaTheme.textLo),
               ),
               selectedIcon: Badge(
                 isLabelVisible: _posCart.isNotEmpty,
+                label: Text('${_posCart.fold(0, (sum, i) => sum + i.quantity)}'),
                 backgroundColor: EstradaTheme.ember500,
-                label: Text('${_posCart.fold<int>(0, (a, b) => a + b.quantity)}'),
                 child: const Icon(Icons.point_of_sale_rounded, color: EstradaTheme.ember500),
               ),
               label: '2. Escáner POS',
@@ -657,47 +1199,10 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
       ),
     );
   }
-
-  Future<void> _sendProductToPosWeb(ProductModel prod) async {
-    try {
-      final clean =
-          _baseUrl.endsWith('/') ? _baseUrl.substring(0, _baseUrl.length - 1) : _baseUrl;
-      final res = await http.post(
-        Uri.parse('$clean/v1/pos/scan'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'barcode': prod.barcode.isNotEmpty ? prod.barcode : prod.sku,
-          'quantity': 1,
-          'session_id': 'MAIN',
-        }),
-      );
-      if (res.statusCode == 200) {
-        setState(() {
-          final existing = _posCart.where((i) => i.product.id == prod.id).toList();
-          if (existing.isNotEmpty) {
-            existing.first.quantity += 1;
-          } else {
-            _posCart.add(PosCartItem(product: prod, quantity: 1));
-          }
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: EstradaTheme.emerald400,
-              content: Text(
-                'Cargado en POS Web: ${prod.name}',
-                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-              ),
-            ),
-          );
-        }
-      }
-    } catch (_) {}
-  }
 }
 
 // ============================================================================
-// PESTAÑA 1: FUNCIONALIDAD 1 - ESCANEAR PRODUCTOS PARA SINCRONIZAR INVENTARIO
+// TAB 1: FUNCIONALIDAD 1 - ESCANEAR PRODUCTOS PARA SINCRONIZAR INVENTARIO
 // ============================================================================
 class InventoryScannerView extends StatefulWidget {
   final String baseUrl;
@@ -722,14 +1227,27 @@ class InventoryScannerView extends StatefulWidget {
 class _InventoryScannerViewState extends State<InventoryScannerView> {
   final MobileScannerController _scannerController = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
+    detectionTimeoutMs: 350,
+    cameraResolution: const Size(1920, 1080),
+    autoZoom: true,
+    formats: const [
+      BarcodeFormat.ean13,
+      BarcodeFormat.ean8,
+      BarcodeFormat.code128,
+      BarcodeFormat.code39,
+      BarcodeFormat.code93,
+      BarcodeFormat.upcA,
+      BarcodeFormat.upcE,
+      BarcodeFormat.qrCode,
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.itf14,
+    ],
   );
   final TextEditingController _manualCodeCtrl = TextEditingController();
 
   bool _cameraExpanded = true;
   bool _isProcessingScan = false;
   DateTime? _lastScanTime;
-  ProductModel? _scannedProduct;
   String? _lastScannedCode;
 
   @override
@@ -746,7 +1264,7 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
     final now = DateTime.now();
     if (_lastScanTime != null &&
         _lastScannedCode == code &&
-        now.difference(_lastScanTime!).inSeconds < 3) {
+        now.difference(_lastScanTime!).inSeconds < 2) {
       return;
     }
     _lastScanTime = now;
@@ -769,10 +1287,8 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
           final data = body['data'];
           if (data['found'] == true && data['product'] != null) {
             final prod = ProductModel.fromJson(data['product'] as Map<String, dynamic>);
-            setState(() => _scannedProduct = prod);
             _showInventorySyncSheet(prod);
           } else {
-            // Código de barras no registrado aún -> ofrecer crearlo con foto desde el celular
             if (mounted) {
               _showNewBarcodeDialog(code);
             }
@@ -784,7 +1300,7 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: EstradaTheme.red400,
-            content: Text('Error consultando código en PostgreSQL: $e'),
+            content: Text('Error consultando código: $e'),
           ),
         );
       }
@@ -799,40 +1315,36 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: EstradaTheme.panelBg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: EstradaTheme.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Row(
           children: [
-            Icon(Icons.add_box_rounded, color: EstradaTheme.ember500),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Código Nuevo Detectado',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
+            Icon(Icons.inventory_2_rounded, color: EstradaTheme.amber400, size: 24),
+            SizedBox(width: 10),
+            Text('Código No Registrado', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
-          'El código "$barcode" aún no existe en el inventario de PostgreSQL.\n\n¿Desea registrarlo ahora mismo y tomarle una fotografía con el celular?',
+          'El código de barras "$barcode" no existe aún en el inventario de Lubricentros Estrada en PostgreSQL.\n\n¿Desea registrarlo como un nuevo producto ahora con foto desde la cámara o galería?',
           style: const TextStyle(color: EstradaTheme.textLo, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar', style: TextStyle(color: EstradaTheme.textLo)),
+            child: const Text('CANCELAR', style: TextStyle(color: EstradaTheme.textDim)),
           ),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: EstradaTheme.ember500,
               foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () {
               Navigator.pop(ctx);
               widget.onOpenProductEditor(prefilledBarcode: barcode);
             },
-            icon: const Icon(Icons.camera_alt_rounded, size: 16),
-            label: const Text('Registrar Producto'),
+            icon: const Icon(Icons.add_a_photo_rounded, size: 16),
+            label: const Text('CREAR CON FOTO', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -840,27 +1352,26 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
   }
 
   void _showInventorySyncSheet(ProductModel prod) {
-    final qtyCtrl = TextEditingController(text: '6');
-    final notesCtrl = TextEditingController(text: 'Sincronización por Escáner Móvil');
-    String movType = 'IN_PURCHASE';
-    bool saving = false;
+    double tempStock = prod.stockCurrent;
+    final noteCtrl = TextEditingController(text: 'Ajuste rápido desde App Móvil');
+    String movementType = 'IN';
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: EstradaTheme.panelBg,
+      backgroundColor: EstradaTheme.cardBg,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
-          builder: (ctx, setSheetState) {
+          builder: (modalCtx, setModalState) {
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
                 right: 20,
                 top: 20,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -871,40 +1382,22 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: EstradaTheme.emerald400.withValues(alpha: 0.15),
+                          color: EstradaTheme.ember500.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: Text(
-                          'SKU: ${prod.sku}',
-                          style: const TextStyle(
-                            color: EstradaTheme.emerald400,
-                            fontSize: 11,
+                        child: const Text(
+                          'SINCRONIZACIÓN DE KARDEX',
+                          style: TextStyle(
+                            color: EstradaTheme.ember500,
+                            fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace',
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      if (prod.barcode.isNotEmpty)
-                        Text(
-                          'EAN: ${prod.barcode}',
-                          style: const TextStyle(
-                            color: EstradaTheme.textLo,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
                       const Spacer(),
-                      TextButton.icon(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          widget.onOpenProductEditor(existing: prod);
-                        },
-                        icon: const Icon(Icons.edit_rounded, size: 15, color: EstradaTheme.amber400),
-                        label: const Text(
-                          'Editar / Foto',
-                          style: TextStyle(color: EstradaTheme.amber400, fontSize: 12),
-                        ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close, color: EstradaTheme.textLo),
                       ),
                     ],
                   ),
@@ -914,16 +1407,15 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
-                          width: 64,
-                          height: 64,
+                          width: 60,
+                          height: 60,
                           color: EstradaTheme.ink950,
                           child: Image.network(
                             widget.resolveImageUrl(prod.imageUrl),
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) => const Icon(
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => const Icon(
                               Icons.oil_barrel_rounded,
-                              color: EstradaTheme.ember500,
-                              size: 32,
+                              color: EstradaTheme.textDim,
                             ),
                           ),
                         ),
@@ -937,196 +1429,161 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
                               prod.name,
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 15,
                                 fontWeight: FontWeight.bold,
+                                fontSize: 15,
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${prod.brandName} • ${prod.presentation}',
-                              style: const TextStyle(color: EstradaTheme.textLo, fontSize: 12),
+                              'SKU: ${prod.sku} • EAN: ${prod.barcode}',
+                              style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
                             ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Text(
-                                  'Stock Actual: ${prod.stockCurrent.toStringAsFixed(0)} unid.',
-                                  style: const TextStyle(
-                                    color: EstradaTheme.emerald400,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'S/ ${prod.salePrice.toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                    color: EstradaTheme.ember500,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 13,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              'S/ ${prod.salePrice.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                color: EstradaTheme.amber400,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
                             ),
                           ],
                         ),
                       ),
                     ],
                   ),
-                  const Divider(color: EstradaTheme.borderSubtle, height: 24),
-                  const Text(
-                    'OPERACIÓN DE SINCRONIZACIÓN KARDEX:',
-                    style: TextStyle(
-                      color: EstradaTheme.textLo,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: EstradaTheme.ink950,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: EstradaTheme.borderSubtle),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Stock Registrado:',
+                              style: TextStyle(color: EstradaTheme.textLo, fontSize: 13),
+                            ),
+                            Text(
+                              '${prod.stockCurrent.toStringAsFixed(0)} unidades',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(color: EstradaTheme.borderSubtle, height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Nuevo Stock a Guardar:',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: EstradaTheme.ember500.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: EstradaTheme.ember500),
+                              ),
+                              child: Text(
+                                '${tempStock.toStringAsFixed(0)} unid.',
+                                style: const TextStyle(
+                                  color: EstradaTheme.ember500,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _stockBtn('-10', () {
+                              if (tempStock >= 10) {
+                                setModalState(() => tempStock -= 10);
+                              }
+                            }),
+                            _stockBtn('-1', () {
+                              if (tempStock >= 1) {
+                                setModalState(() => tempStock -= 1);
+                              }
+                            }),
+                            _stockBtn('+1', () {
+                              setModalState(() => tempStock += 1);
+                            }),
+                            _stockBtn('+5', () {
+                              setModalState(() => tempStock += 5);
+                            }),
+                            _stockBtn('+10', () {
+                              setModalState(() => tempStock += 10);
+                            }),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _movTypeChip(
-                        label: '+ Ingreso Compra',
-                        value: 'IN_PURCHASE',
-                        current: movType,
-                        onSelect: (v) => setSheetState(() => movType = v),
-                      ),
-                      _movTypeChip(
-                        label: '= Fijar Stock Exacto',
-                        value: 'SET_STOCK',
-                        current: movType,
-                        onSelect: (v) => setSheetState(() {
-                          movType = v;
-                          qtyCtrl.text = prod.stockCurrent.toStringAsFixed(0);
-                        }),
-                      ),
-                      _movTypeChip(
-                        label: '- Salida / Ajuste',
-                        value: 'ADJUSTMENT_NEG',
-                        current: movType,
-                        onSelect: (v) => setSheetState(() => movType = v),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
-                        flex: 2,
-                        child: TextField(
-                          controller: qtyCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace',
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: EstradaTheme.borderSubtle),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
-                          decoration: InputDecoration(
-                            labelText: movType == 'SET_STOCK' ? 'Nuevo Stock Total' : 'Cantidad Unid.',
-                            labelStyle: const TextStyle(color: EstradaTheme.textLo, fontSize: 12),
-                            filled: true,
-                            fillColor: EstradaTheme.ink950,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            widget.onOpenProductEditor(existing: prod);
+                          },
+                          child: const Text('EDITAR / FOTO', style: TextStyle(color: Colors.white, fontSize: 11)),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       Expanded(
-                        flex: 3,
-                        child: TextField(
-                          controller: notesCtrl,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
-                          decoration: InputDecoration(
-                            labelText: 'Referencia Kardex',
-                            labelStyle: const TextStyle(color: EstradaTheme.textLo, fontSize: 12),
-                            filled: true,
-                            fillColor: EstradaTheme.ink950,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: EstradaTheme.emerald500,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () async {
+                            final delta = tempStock - prod.stockCurrent;
+                            movementType = delta >= 0 ? 'IN' : 'OUT';
+                            final qty = delta.abs();
+
+                            Navigator.pop(ctx);
+                            await _applyStockSync(
+                              productId: prod.id,
+                              barcode: prod.barcode,
+                              movementType: movementType,
+                              quantity: qty > 0 ? qty : 0,
+                              newTotalStock: tempStock,
+                              reason: noteCtrl.text.trim(),
+                            );
+                          },
+                          icon: const Icon(Icons.check_circle_rounded, size: 18),
+                          label: const Text(
+                            'ACTUALIZAR EN POSTGRESQL',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                           ),
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: EstradaTheme.ember500,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      onPressed: saving
-                          ? null
-                          : () async {
-                              final qty = double.tryParse(qtyCtrl.text.trim()) ?? 0;
-                              if (qty <= 0 && movType != 'SET_STOCK') return;
-                              setSheetState(() => saving = true);
-
-                              try {
-                                final clean = widget.baseUrl.endsWith('/')
-                                    ? widget.baseUrl.substring(0, widget.baseUrl.length - 1)
-                                    : widget.baseUrl;
-                                final res = await http.post(
-                                  Uri.parse('$clean/v1/inventory/scan-sync'),
-                                  headers: {'Content-Type': 'application/json'},
-                                  body: jsonEncode({
-                                    'product_id': prod.id,
-                                    'movement_type': movType,
-                                    'quantity': qty,
-                                    'unit_cost': prod.purchasePrice,
-                                    'notes': notesCtrl.text.trim(),
-                                  }),
-                                );
-                                final body = jsonDecode(utf8.decode(res.bodyBytes));
-                                if (res.statusCode == 200 && body['success'] == true) {
-                                  if (ctx.mounted) Navigator.pop(ctx);
-                                  await widget.onRefreshProducts();
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        backgroundColor: EstradaTheme.emerald400,
-                                        content: Text(
-                                          'Stock sincronizado en Web y BD: ${body['data']['stock_after']} unidades',
-                                          style: const TextStyle(
-                                            color: Colors.black,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                } else {
-                                  throw Exception(body['error']?['message'] ?? 'Error al sincronizar');
-                                }
-                              } catch (err) {
-                                if (ctx.mounted) {
-                                  ScaffoldMessenger.of(ctx).showSnackBar(
-                                    SnackBar(
-                                      backgroundColor: EstradaTheme.red400,
-                                      content: Text('$err'),
-                                    ),
-                                  );
-                                }
-                              } finally {
-                                if (ctx.mounted) setSheetState(() => saving = false);
-                              }
-                            },
-                      icon: const Icon(Icons.cloud_upload_rounded, size: 18),
-                      label: Text(
-                        saving
-                            ? 'SINCRONIZANDO CON POSTGRESQL...'
-                            : 'GUARDAR Y SINCRONIZAR INVENTARIO WEB',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -1137,196 +1594,196 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
     );
   }
 
-  Widget _movTypeChip({
-    required String label,
-    required String value,
-    required String current,
-    required void Function(String) onSelect,
-  }) {
-    final selected = current == value;
-    return ChoiceChip(
-      label: Text(
-        label,
-        style: TextStyle(
-          color: selected ? Colors.black : Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 11,
+  Widget _stockBtn(String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: EstradaTheme.cardSubtle,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: EstradaTheme.borderSubtle),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
         ),
       ),
-      selected: selected,
-      selectedColor: EstradaTheme.amber400,
-      backgroundColor: EstradaTheme.cardBg,
-      onSelected: (_) => onSelect(value),
     );
+  }
+
+  Future<void> _applyStockSync({
+    required String productId,
+    required String barcode,
+    required String movementType,
+    required double quantity,
+    required double newTotalStock,
+    required String reason,
+  }) async {
+    try {
+      final clean = widget.baseUrl.endsWith('/')
+          ? widget.baseUrl.substring(0, widget.baseUrl.length - 1)
+          : widget.baseUrl;
+      final res = await http.post(
+        Uri.parse('$clean/v1/inventory/scan-sync'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'product_id': productId,
+          'barcode': barcode,
+          'movement_type': movementType,
+          'quantity': quantity,
+          'new_stock_direct': newTotalStock,
+          'reason': reason,
+        }),
+      );
+
+      if (res.statusCode == 200) {
+        await widget.onRefreshProducts();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: EstradaTheme.emerald500,
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '¡Stock actualizado a ${newTotalStock.toStringAsFixed(0)} unid. en PostgreSQL!',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: EstradaTheme.red400, content: Text('Error guardando stock: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       children: [
-        // Encabezado de Funcionalidad 1
+        // Encabezado Amigable del Módulo 1
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: EstradaTheme.ember500.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.inventory_2_rounded, color: EstradaTheme.ember500, size: 14),
+                  SizedBox(width: 6),
+                  Text(
+                    'Kardex y Almacén',
+                    style: TextStyle(
+                      color: EstradaTheme.ember500,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              style: TextButton.styleFrom(padding: EdgeInsets.zero),
+              onPressed: () => setState(() => _cameraExpanded = !_cameraExpanded),
+              icon: Icon(
+                _cameraExpanded ? Icons.videocam_off_rounded : Icons.videocam_rounded,
+                size: 16,
+                color: EstradaTheme.amber400,
+              ),
+              label: Text(
+                _cameraExpanded ? 'Ocultar Cámara' : 'Abrir Cámara',
+                style: const TextStyle(color: EstradaTheme.amber400, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Escaneo de Inventario',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Apunta al código de barras del lubricante o filtro para consultar o ajustar stock al instante.',
+          style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+
+        // Visor de Cámara HD Mejorado con Zoom y Linterna
+        if (_cameraExpanded) ...[
+          EstradaCameraViewfinder(
+            controller: _scannerController,
+            height: 250,
+            statusHint: _isProcessingScan ? 'Consultando PostgreSQL...' : 'Autoenfoque HD Activo',
+            accentColor: EstradaTheme.ember500,
+            onBarcodeDetected: _lookupBarcode,
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Barra de Búsqueda Manual / Código de Barras
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
-            color: EstradaTheme.panelBg,
-            borderRadius: BorderRadius.circular(20),
+            color: EstradaTheme.cardBg,
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: EstradaTheme.borderSubtle),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: EstradaTheme.ember500.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'MÓDULO 1 • KARDEX & ALMACÉN',
-                      style: TextStyle(
-                        color: EstradaTheme.ember500,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
+              const SizedBox(width: 12),
+              const Icon(Icons.qr_code_rounded, color: EstradaTheme.textDim, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _manualCodeCtrl,
+                  keyboardType: TextInputType.text,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: const InputDecoration(
+                    hintText: 'Ingresar código de barras manual...',
+                    hintStyle: TextStyle(color: EstradaTheme.textDim, fontSize: 12),
+                    border: InputBorder.none,
+                    isDense: true,
                   ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: () => setState(() => _cameraExpanded = !_cameraExpanded),
-                    icon: Icon(
-                      _cameraExpanded ? Icons.videocam_off_rounded : Icons.videocam_rounded,
-                      size: 16,
-                      color: EstradaTheme.amber400,
-                    ),
-                    label: Text(
-                      _cameraExpanded ? 'Ocultar Cámara' : 'Abrir Cámara',
-                      style: const TextStyle(color: EstradaTheme.amber400, fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Escáner de Sincronización de Inventario',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                  onSubmitted: _lookupBarcode,
                 ),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'Apunte al código de barras del lubricante o filtro para actualizar stock en tiempo real, editar datos o dar de alta un nuevo producto con fotografía.',
-                style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
-              ),
-              if (_cameraExpanded) ...[
-                const SizedBox(height: 14),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: SizedBox(
-                    height: 220,
-                    width: double.infinity,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        MobileScanner(
-                          controller: _scannerController,
-                          onDetect: (capture) {
-                            for (final barcode in capture.barcodes) {
-                              final raw = barcode.rawValue;
-                              if (raw != null && raw.isNotEmpty) {
-                                _lookupBarcode(raw);
-                                break;
-                              }
-                            }
-                          },
-                        ),
-                        // Marco de mira láser estilo Estrada
-                        Container(
-                          width: 220,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: EstradaTheme.ember500, width: 2),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: IconButton(
-                            style: IconButton.styleFrom(backgroundColor: Colors.black54),
-                            onPressed: () => _scannerController.toggleTorch(),
-                            icon: const Icon(Icons.flash_on_rounded, color: EstradaTheme.amber400),
-                          ),
-                        ),
-                        Positioned(
-                          bottom: 10,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.black87,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              _isProcessingScan
-                                  ? 'Consultando PostgreSQL...'
-                                  : 'EAN-13 • CODE-128 • QR ACTIVO',
-                              style: const TextStyle(
-                                color: EstradaTheme.ember500,
-                                fontSize: 10,
-                                fontFamily: 'monospace',
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: EstradaTheme.ember500,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-              ],
-              const SizedBox(height: 12),
-              // Buscador / Lector manual de código
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _manualCodeCtrl,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontFamily: 'monospace',
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Ingresar código de barras o SKU (ej. 7501001234567)...',
-                        hintStyle: const TextStyle(color: EstradaTheme.textDim, fontSize: 11),
-                        filled: true,
-                        fillColor: EstradaTheme.ink950,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: EstradaTheme.borderSubtle),
-                        ),
-                      ),
-                      onSubmitted: (val) => _lookupBarcode(val),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: EstradaTheme.ember500,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () => _lookupBarcode(_manualCodeCtrl.text),
-                    child: const Text('BUSCAR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                  ),
-                ],
+                onPressed: () => _lookupBarcode(_manualCodeCtrl.text),
+                child: const Text('BUSCAR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
               ),
             ],
           ),
@@ -1336,133 +1793,152 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
         Row(
           children: [
             const Text(
-              'INVENTARIO SINCRONIZADO EN TIEMPO REAL',
+              'INVENTARIO SINCRONIZADO',
               style: TextStyle(
-                color: EstradaTheme.textLo,
+                color: EstradaTheme.textDim,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
-                fontFamily: 'monospace',
+                letterSpacing: 0.8,
               ),
             ),
             const Spacer(),
             TextButton.icon(
+              style: TextButton.styleFrom(padding: EdgeInsets.zero),
               onPressed: () => widget.onOpenProductEditor(),
-              icon: const Icon(Icons.add_a_photo_rounded, size: 15, color: EstradaTheme.ember500),
+              icon: const Icon(Icons.add_a_photo_rounded, color: EstradaTheme.amber400, size: 14),
               label: const Text(
                 '+ Nuevo con Foto',
-                style: TextStyle(color: EstradaTheme.ember500, fontWeight: FontWeight.bold, fontSize: 12),
+                style: TextStyle(color: EstradaTheme.amber400, fontSize: 11, fontWeight: FontWeight.bold),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
 
-        ...widget.products.map((prod) {
-          final isLow = prod.stockCurrent <= prod.stockMin;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 10),
+        // Listado de Productos Sincronizados
+        if (widget.products.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: EstradaTheme.panelBg,
+              color: EstradaTheme.cardBg,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: _scannedProduct?.id == prod.id
-                    ? EstradaTheme.ember500
-                    : EstradaTheme.borderSubtle,
+              border: Border.all(color: EstradaTheme.borderSubtle),
+            ),
+            child: const Center(
+              child: Text(
+                'Cargando catálogo desde PostgreSQL en Docker...',
+                style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
               ),
             ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              leading: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  color: EstradaTheme.ink950,
-                  child: Image.network(
-                    widget.resolveImageUrl(prod.imageUrl),
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, _, _) =>
-                        const Icon(Icons.oil_barrel_rounded, color: EstradaTheme.ember500),
-                  ),
-                ),
-              ),
-              title: Text(
-                prod.name,
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 3),
-                  Text(
-                    'SKU: ${prod.sku} • EAN: ${prod.barcode.isEmpty ? "S/N" : prod.barcode}',
-                    style: const TextStyle(
-                      color: EstradaTheme.textLo,
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isLow
-                              ? EstradaTheme.amber400.withValues(alpha: 0.15)
-                              : EstradaTheme.emerald400.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          'Stock: ${prod.stockCurrent.toStringAsFixed(0)} unid.',
-                          style: TextStyle(
-                            color: isLow ? EstradaTheme.amber400 : EstradaTheme.emerald400,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'S/ ${prod.salePrice.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              trailing: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: EstradaTheme.cardBg,
-                  foregroundColor: EstradaTheme.amber400,
-                  side: const BorderSide(color: EstradaTheme.borderSubtle),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                onPressed: () => _showInventorySyncSheet(prod),
-                child: const Text(
-                  'Sinc. Stock',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-          );
-        }),
+          )
+        else
+          ...widget.products.map((p) => _buildProductRow(p)),
       ],
+    );
+  }
+
+  Widget _buildProductRow(ProductModel prod) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: EstradaTheme.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: EstradaTheme.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              width: 52,
+              height: 52,
+              color: EstradaTheme.ink950,
+              child: Image.network(
+                widget.resolveImageUrl(prod.imageUrl),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.oil_barrel_rounded,
+                  color: EstradaTheme.textDim,
+                  size: 24,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  prod.name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'SKU: ${prod.sku} • EAN: ${prod.barcode}',
+                  style: const TextStyle(color: EstradaTheme.textDim, fontSize: 10),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: EstradaTheme.emerald500.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Stock: ${prod.stockCurrent.toStringAsFixed(0)} unid.',
+                        style: const TextStyle(
+                          color: EstradaTheme.emerald400,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'S/ ${prod.salePrice.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: EstradaTheme.amber400,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: EstradaTheme.cardSubtle,
+              foregroundColor: EstradaTheme.amber400,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: EstradaTheme.borderSubtle),
+              ),
+            ),
+            onPressed: () => _showInventorySyncSheet(prod),
+            child: const Text('Sinc. Stock', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 }
 
 // ============================================================================
-// PESTAÑA 2: FUNCIONALIDAD 2 - ESCANEAR EN VENTA -> CARGA AUTOMÁTICA EN POS WEB
+// TAB 2: FUNCIONALIDAD 2 - ESCANEAR EN VENTA -> POS WEB + DESCUENTO DE STOCK
 // ============================================================================
 class PosScannerLiveView extends StatefulWidget {
   final String baseUrl;
@@ -1489,7 +1965,21 @@ class PosScannerLiveView extends StatefulWidget {
 class _PosScannerLiveViewState extends State<PosScannerLiveView> {
   final MobileScannerController _posScannerCtrl = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
+    detectionTimeoutMs: 350,
+    cameraResolution: const Size(1920, 1080),
+    autoZoom: true,
+    formats: const [
+      BarcodeFormat.ean13,
+      BarcodeFormat.ean8,
+      BarcodeFormat.code128,
+      BarcodeFormat.code39,
+      BarcodeFormat.code93,
+      BarcodeFormat.upcA,
+      BarcodeFormat.upcE,
+      BarcodeFormat.qrCode,
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.itf14,
+    ],
   );
 
   bool _cameraActive = true;
@@ -1511,309 +2001,214 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
     final now = DateTime.now();
     if (_lastPosScanTime != null &&
         _lastPosCode == cleanCode &&
-        now.difference(_lastPosScanTime!).inMilliseconds < 1800) {
+        now.difference(_lastPosScanTime!).inMilliseconds < 1500) {
       return;
     }
     _lastPosScanTime = now;
     _lastPosCode = cleanCode;
 
     setState(() => _sendingScan = true);
-    HapticFeedback.heavyImpact();
+    HapticFeedback.mediumImpact();
 
     try {
       final clean = widget.baseUrl.endsWith('/')
           ? widget.baseUrl.substring(0, widget.baseUrl.length - 1)
           : widget.baseUrl;
-
       final res = await http.post(
         Uri.parse('$clean/v1/pos/scan'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'barcode': cleanCode,
           'quantity': 1,
-          'session_id': 'MAIN',
+          'session_id': 'mobile_live_session',
         }),
       );
 
-      final body = jsonDecode(utf8.decode(res.bodyBytes));
-      if (res.statusCode == 200 && body['success'] == true) {
-        final prod = ProductModel.fromJson(body['data']['product'] as Map<String, dynamic>);
-        final existing = widget.cart.where((i) => i.product.id == prod.id).toList();
-        if (existing.isNotEmpty) {
-          existing.first.quantity += 1;
-        } else {
-          widget.cart.add(PosCartItem(product: prod, quantity: 1));
-        }
-        widget.onCartChanged();
-        setState(() {
-          _lastSyncedMessage = 'Cargado en POS Web: ${prod.name} (S/ ${prod.salePrice.toStringAsFixed(2)})';
-        });
-      } else {
-        final msg = body['error']?['message'] ?? 'Código no encontrado en inventario';
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(backgroundColor: EstradaTheme.red400, content: Text(msg.toString())),
-          );
+      if (res.statusCode == 200) {
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
+        if (body['success'] == true && body['data'] != null) {
+          final pJson = body['data']['product'];
+          final prod = ProductModel.fromJson(pJson as Map<String, dynamic>);
+
+          final idx = widget.cart.indexWhere((c) => c.product.id == prod.id);
+          if (idx >= 0) {
+            widget.cart[idx].quantity += 1;
+          } else {
+            widget.cart.add(PosCartItem(product: prod, quantity: 1));
+          }
+          widget.onCartChanged();
+
+          setState(() {
+            _lastSyncedMessage = 'Cargado en POS Web: ${prod.name} (S/ ${prod.salePrice.toStringAsFixed(2)})';
+          });
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: EstradaTheme.red400, content: Text('Error de red: $e')),
+          SnackBar(backgroundColor: EstradaTheme.red400, content: Text('Error enviando a POS Web: $e')),
         );
       }
     } finally {
-      if (mounted) setState(() => _sendingScan = false);
+      if (mounted) {
+        setState(() => _sendingScan = false);
+      }
     }
   }
 
-  void _openCheckoutSheet() {
+  void _showCheckoutDialog() {
     if (widget.cart.isEmpty) return;
 
-    final docCtrl = TextEditingController(text: '10458923');
-    final nameCtrl = TextEditingController(text: 'CLIENTE MOSTRADOR ESTRADA');
-    final plateCtrl = TextEditingController(text: 'ABC-123');
-    String docType = '03'; // 03=Boleta, 01=Factura, 80=Nota de Venta
+    final total = widget.cart.fold<double>(0.0, (sum, i) => sum + i.subtotal);
+    final count = widget.cart.fold<int>(0, (sum, i) => sum + i.quantity);
+    final customerCtrl = TextEditingController(text: 'CLIENTE MOSTRADOR');
     String paymentMethod = 'EFECTIVO';
-    bool processing = false;
+    bool closingSale = false;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: EstradaTheme.panelBg,
+      backgroundColor: EstradaTheme.cardBg,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            final total = widget.cart.fold<double>(
-              0,
-              (acc, item) => acc + (item.product.salePrice * item.quantity),
-            );
-            final subtotal = total / 1.18;
-            final igv = total - subtotal;
-
+          builder: (modalCtx, setModalState) {
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
                 right: 20,
                 top: 20,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'EMISIÓN ELECTRÓNICA SUNAT & DESCUENTO DE STOCK',
-                    style: TextStyle(
-                      color: EstradaTheme.ember500,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Total a Cobrar: S/ ${total.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  Text(
-                    'Gravado: S/ ${subtotal.toStringAsFixed(2)} • IGV (18%): S/ ${igv.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      color: EstradaTheme.textLo,
-                      fontSize: 11,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('Boleta (B001)'),
-                        selected: docType == '03',
-                        selectedColor: EstradaTheme.ember500,
-                        onSelected: (_) => setModalState(() => docType = '03'),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Factura (F001)'),
-                        selected: docType == '01',
-                        selectedColor: EstradaTheme.ember500,
-                        onSelected: (_) => setModalState(() => docType = '01'),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Ticket (NV01)'),
-                        selected: docType == '80',
-                        selectedColor: EstradaTheme.ember500,
-                        onSelected: (_) => setModalState(() => docType = '80'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
                   Row(
                     children: [
-                      Expanded(
-                        flex: 2,
-                        child: TextField(
-                          controller: docCtrl,
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
-                          decoration: InputDecoration(
-                            labelText: docType == '01' ? 'RUC Cliente' : 'DNI Cliente',
-                            filled: true,
-                            fillColor: EstradaTheme.ink950,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: EstradaTheme.ember500.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'COBRO DE VENTA POS',
+                          style: TextStyle(
+                            color: EstradaTheme.ember500,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        flex: 2,
-                        child: TextField(
-                          controller: plateCtrl,
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
-                          decoration: InputDecoration(
-                            labelText: 'Placa Vehículo',
-                            filled: true,
-                            fillColor: EstradaTheme.ink950,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close, color: EstradaTheme.textLo),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
+                  Text(
+                    'Cerrar Venta ($count artículos)',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Al confirmar, se emitirá el comprobante y se descontará automáticamente el stock en PostgreSQL.',
+                    style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: EstradaTheme.ink950,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: EstradaTheme.borderSubtle),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('TOTAL A COBRAR:', style: TextStyle(color: EstradaTheme.textLo, fontSize: 13, fontWeight: FontWeight.bold)),
+                        Text(
+                          'S/ ${total.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: EstradaTheme.ember500,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 22,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
                   TextField(
-                    controller: nameCtrl,
+                    controller: customerCtrl,
                     style: const TextStyle(color: Colors.white, fontSize: 13),
                     decoration: InputDecoration(
-                      labelText: 'Nombre o Razón Social',
+                      labelText: 'Cliente / Razón Social',
+                      labelStyle: const TextStyle(color: EstradaTheme.textLo, fontSize: 12),
                       filled: true,
                       fillColor: EstradaTheme.ink950,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: EstradaTheme.borderSubtle),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    children: ['EFECTIVO', 'YAPE_PLIN', 'TARJETA'].map((m) {
-                      return ChoiceChip(
-                        label: Text(m, style: const TextStyle(fontSize: 11)),
-                        selected: paymentMethod == m,
-                        selectedColor: EstradaTheme.amber400,
-                        labelStyle: TextStyle(
-                          color: paymentMethod == m ? Colors.black : Colors.white,
-                          fontWeight: FontWeight.bold,
+                  const Text('Método de Pago:', style: TextStyle(color: EstradaTheme.textLo, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: ['EFECTIVO', 'YAPE / PLIN', 'TARJETA', 'TRANSFERENCIA'].map((m) {
+                      final sel = paymentMethod == m;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(m, style: TextStyle(color: sel ? Colors.white : EstradaTheme.textLo, fontSize: 10, fontWeight: FontWeight.bold)),
+                          selected: sel,
+                          selectedColor: EstradaTheme.ember500,
+                          backgroundColor: EstradaTheme.ink950,
+                          onSelected: (_) => setModalState(() => paymentMethod = m),
                         ),
-                        onSelected: (_) => setModalState(() => paymentMethod = m),
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: EstradaTheme.emerald400,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        backgroundColor: EstradaTheme.ember500,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      onPressed: processing
+                      onPressed: closingSale
                           ? null
                           : () async {
-                              setModalState(() => processing = true);
-                              try {
-                                final clean = widget.baseUrl.endsWith('/')
-                                    ? widget.baseUrl.substring(0, widget.baseUrl.length - 1)
-                                    : widget.baseUrl;
-                                final series = docType == '01'
-                                    ? 'F001'
-                                    : (docType == '03' ? 'B001' : 'NV01');
-
-                                final payload = {
-                                  'doc_type_code': docType,
-                                  'series': series,
-                                  'payment_method': paymentMethod,
-                                  'payment_condition': 'CONTADO',
-                                  'customer': {
-                                    'doc_type_code': docType == '01' ? '6' : '1',
-                                    'doc_number': docCtrl.text.trim(),
-                                    'full_name_or_business_name': nameCtrl.text.trim(),
-                                    'fiscal_address': 'HUANCAYO, JUNÍN',
-                                  },
-                                  if (plateCtrl.text.trim().isNotEmpty)
-                                    'vehicle': {
-                                      'license_plate': plateCtrl.text.trim().toUpperCase(),
-                                      'brand': 'Toyota',
-                                      'model': 'Particular',
-                                      'usage_profile': 'PARTICULAR',
-                                      'current_km': 48500,
-                                    },
-                                  'items': widget.cart
-                                      .map((item) => {
-                                            'product_id': item.product.id,
-                                            'description': item.product.name,
-                                            'quantity': item.quantity,
-                                            'unit_price': item.product.salePrice,
-                                          })
-                                      .toList(),
-                                };
-
-                                final res = await http.post(
-                                  Uri.parse('$clean/v1/sales'),
-                                  headers: {'Content-Type': 'application/json'},
-                                  body: jsonEncode(payload),
-                                );
-                                final body = jsonDecode(utf8.decode(res.bodyBytes));
-                                if ((res.statusCode == 201 || res.statusCode == 200) &&
-                                    body['success'] == true) {
-                                  final fullNum = body['data']['full_number'] ?? '';
-                                  if (ctx.mounted) Navigator.pop(ctx);
-                                  widget.onSaleCompleted();
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        backgroundColor: EstradaTheme.emerald400,
-                                        duration: const Duration(seconds: 5),
-                                        content: Text(
-                                          '¡Venta cerrada ($fullNum)! Stock descontado automáticamente en PostgreSQL.',
-                                          style: const TextStyle(
-                                            color: Colors.black,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                } else {
-                                  throw Exception(body['error']?['message'] ?? 'Fallo en venta');
-                                }
-                              } catch (err) {
-                                if (ctx.mounted) {
-                                  ScaffoldMessenger.of(ctx).showSnackBar(
-                                    SnackBar(
-                                      backgroundColor: EstradaTheme.red400,
-                                      content: Text('$err'),
-                                    ),
-                                  );
-                                }
-                              } finally {
-                                if (ctx.mounted) setModalState(() => processing = false);
+                              setModalState(() => closingSale = true);
+                              await _executeSaleClosure(
+                                customerName: customerCtrl.text.trim(),
+                                paymentMethod: paymentMethod,
+                                total: total,
+                              );
+                              if (ctx.mounted) {
+                                Navigator.pop(ctx);
                               }
                             },
-                      icon: const Icon(Icons.check_circle_rounded, size: 20),
+                      icon: closingSale
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Icon(Icons.receipt_long_rounded, size: 20),
                       label: Text(
-                        processing
-                            ? 'PROCESANDO Y DESCONTANDO STOCK...'
-                            : 'CERRAR VENTA Y DESCONTAR DEL INVENTARIO',
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                        closingSale ? 'DESCONTANDO STOCK...' : 'CONFIRMAR Y DESCONTAR INVENTARIO',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),
                   ),
@@ -1826,329 +2221,328 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
     );
   }
 
+  Future<void> _executeSaleClosure({
+    required String customerName,
+    required String paymentMethod,
+    required double total,
+  }) async {
+    try {
+      final clean = widget.baseUrl.endsWith('/')
+          ? widget.baseUrl.substring(0, widget.baseUrl.length - 1)
+          : widget.baseUrl;
+
+      final itemsPayload = widget.cart.map((item) {
+        return {
+          'product_id': item.product.id,
+          'quantity': item.quantity,
+          'unit_price': item.product.salePrice,
+          'subtotal': item.subtotal,
+        };
+      }).toList();
+
+      final res = await http.post(
+        Uri.parse('$clean/v1/sales'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'customer_name': customerName.isNotEmpty ? customerName : 'CLIENTE MOSTRADOR',
+          'payment_method': paymentMethod,
+          'total_amount': total,
+          'items': itemsPayload,
+          'notes': 'Venta cerrada desde Estrada ERP Mobile Scanner',
+        }),
+      );
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        widget.onSaleCompleted();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: EstradaTheme.emerald500,
+            content: Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Colors.white),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '¡Venta registrada con éxito y stock descontado en PostgreSQL!',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: EstradaTheme.red400, content: Text('Error al cerrar venta: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final total = widget.cart.fold<double>(
-      0,
-      (acc, i) => acc + (i.product.salePrice * i.quantity),
-    );
+    final total = widget.cart.fold<double>(0.0, (sum, i) => sum + i.subtotal);
+    final count = widget.cart.fold<int>(0, (sum, i) => sum + i.quantity);
 
     return Column(
       children: [
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             children: [
-              // Panel de Escáner en Vivo hacia el POS Web
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: EstradaTheme.panelBg,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: EstradaTheme.borderSubtle),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              // Encabezado Amigable del Lector POS
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: EstradaTheme.emerald500.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: EstradaTheme.amber400.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
+                        Icon(Icons.bolt_rounded, color: EstradaTheme.emerald400, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          'POS Web en Vivo',
+                          style: TextStyle(
+                            color: EstradaTheme.emerald400,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
                           ),
-                          child: const Text(
-                            'MÓDULO 2 • PISTOLA LÁSER POS WEB',
-                            style: TextStyle(
-                              color: EstradaTheme.amber400,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        Switch(
-                          value: _cameraActive,
-                          activeThumbColor: EstradaTheme.ember500,
-                          onChanged: (v) => setState(() => _cameraActive = v),
                         ),
                       ],
                     ),
-                    const Text(
-                      'Escaneo Automático al POS Web',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
+                  ),
+                  const Spacer(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _cameraActive ? 'Cámara ON' : 'Cámara OFF',
+                        style: const TextStyle(color: EstradaTheme.textDim, fontSize: 11),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Cada código escaneado aquí se carga automáticamente en la pantalla del POS Web (/admin/pos) y se descuenta del inventario al cerrar la venta.',
-                      style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
-                    ),
-                    if (_lastSyncedMessage != null) ...[
-                      const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: EstradaTheme.emerald400.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: EstradaTheme.emerald400.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.bolt_rounded, color: EstradaTheme.emerald400, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _lastSyncedMessage!,
-                                style: const TextStyle(
-                                  color: EstradaTheme.emerald400,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'monospace',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                      const SizedBox(width: 6),
+                      Switch(
+                        value: _cameraActive,
+                        activeThumbColor: EstradaTheme.ember500,
+                        onChanged: (v) => setState(() => _cameraActive = v),
                       ),
                     ],
-                    if (_cameraActive) ...[
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: SizedBox(
-                          height: 185,
-                          width: double.infinity,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              MobileScanner(
-                                controller: _posScannerCtrl,
-                                onDetect: (capture) {
-                                  for (final b in capture.barcodes) {
-                                    if (b.rawValue != null && b.rawValue!.isNotEmpty) {
-                                      _scanAndPushToWebPos(b.rawValue!);
-                                      break;
-                                    }
-                                  }
-                                },
-                              ),
-                              Container(
-                                width: 210,
-                                height: 100,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: EstradaTheme.amber400, width: 2),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Lector de Caja (POS)',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
+              const SizedBox(height: 4),
+              const Text(
+                'Los códigos escaneados se cargan de inmediato en la pantalla del POS Web (/admin/pos) para cobrar.',
+                style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
 
-              const SizedBox(height: 16),
-              // Carrito activo sincronizado
-              if (widget.cart.isNotEmpty) ...[
-                const Text(
-                  'CARRITO DE VENTA ACTIVO (SINCRONIZADO CON POS WEB)',
-                  style: TextStyle(
-                    color: EstradaTheme.amber400,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
+              // Banner Verde de Confirmación de Envío en Tiempo Real
+              if (_lastSyncedMessage != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: EstradaTheme.emerald500.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: EstradaTheme.emerald400.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_rounded, color: EstradaTheme.emerald400, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _lastSyncedMessage!,
+                          style: const TextStyle(
+                            color: EstradaTheme.emerald400,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                ...widget.cart.map((item) => Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: EstradaTheme.cardBg,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: EstradaTheme.amber400.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.product.name,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                Text(
-                                  'S/ ${item.product.salePrice.toStringAsFixed(2)} c/u • Stock: ${item.product.stockCurrent.toStringAsFixed(0)}',
-                                  style: const TextStyle(
-                                    color: EstradaTheme.textLo,
-                                    fontSize: 11,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () {
-                              setState(() {
-                                if (item.quantity > 1) {
-                                  item.quantity -= 1;
-                                } else {
-                                  widget.cart.remove(item);
-                                }
-                              });
-                              widget.onCartChanged();
-                            },
-                            icon: const Icon(Icons.remove_circle_outline, color: EstradaTheme.textLo),
-                          ),
-                          Text(
-                            '${item.quantity}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () =>
-                                _scanAndPushToWebPos(item.product.barcode.isNotEmpty ? item.product.barcode : item.product.sku),
-                            icon: const Icon(Icons.add_circle_outline, color: EstradaTheme.ember500),
-                          ),
-                        ],
-                      ),
-                    )),
                 const SizedBox(height: 12),
               ],
 
+              // Visor HD de Escáner POS con Zoom Táctil
+              if (_cameraActive) ...[
+                EstradaCameraViewfinder(
+                  controller: _posScannerCtrl,
+                  height: 250,
+                  statusHint: _sendingScan ? 'Enviando a POS Web...' : 'Escaneo Rápido de Caja',
+                  accentColor: EstradaTheme.amber400,
+                  onBarcodeDetected: _scanAndPushToWebPos,
+                ),
+                const SizedBox(height: 14),
+              ],
+
+              // Carrito Sincronizado
+              Row(
+                children: [
+                  const Text(
+                    'CARRITO EN VIVO',
+                    style: TextStyle(
+                      color: EstradaTheme.textDim,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (widget.cart.isNotEmpty)
+                    TextButton(
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () {
+                        widget.cart.clear();
+                        widget.onCartChanged();
+                      },
+                      child: const Text('Vaciar', style: TextStyle(color: EstradaTheme.red400, fontSize: 11)),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              if (widget.cart.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: EstradaTheme.cardBg,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: EstradaTheme.borderSubtle),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      children: [
+                        Icon(Icons.shopping_cart_outlined, color: EstradaTheme.textDim, size: 36),
+                        SizedBox(height: 8),
+                        Text(
+                          'El carrito está vacío.\nEscanea códigos de barras o agrega desde la lista.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                ...widget.cart.map((item) => _buildCartItemCard(item)),
+
+              const SizedBox(height: 14),
               const Text(
                 'TOQUE RÁPIDO PARA ENVIAR AL POS WEB:',
                 style: TextStyle(
-                  color: EstradaTheme.textLo,
-                  fontSize: 11,
+                  color: EstradaTheme.textDim,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
+                  letterSpacing: 0.8,
                 ),
               ),
               const SizedBox(height: 8),
-              ...widget.products.map((prod) => Card(
-                    color: EstradaTheme.panelBg,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      side: const BorderSide(color: EstradaTheme.borderSubtle),
-                    ),
-                    child: ListTile(
-                      onTap: () => _scanAndPushToWebPos(
-                        prod.barcode.isNotEmpty ? prod.barcode : prod.sku,
+
+              // Chips de Acceso Rápido
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: widget.products.take(6).map((prod) {
+                  return InkWell(
+                    onTap: () => _scanAndPushToWebPos(prod.barcode.isNotEmpty ? prod.barcode : prod.sku),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: EstradaTheme.cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: EstradaTheme.borderSubtle),
                       ),
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          width: 42,
-                          height: 42,
-                          color: EstradaTheme.ink950,
-                          child: Image.network(
-                            widget.resolveImageUrl(prod.imageUrl),
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) => const Icon(
-                              Icons.oil_barrel_rounded,
-                              color: EstradaTheme.ember500,
-                            ),
-                          ),
-                        ),
-                      ),
-                      title: Text(
-                        prod.name,
-                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        'EAN: ${prod.barcode.isEmpty ? prod.sku : prod.barcode} • Stock: ${prod.stockCurrent.toStringAsFixed(0)}',
-                        style: const TextStyle(color: EstradaTheme.textLo, fontSize: 10, fontFamily: 'monospace'),
-                      ),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          const Icon(Icons.add_rounded, color: EstradaTheme.amber400, size: 14),
+                          const SizedBox(width: 4),
                           Text(
-                            'S/ ${prod.salePrice.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              color: EstradaTheme.amber400,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                          const Text(
-                            '+ Enviar a POS',
-                            style: TextStyle(color: EstradaTheme.emerald400, fontSize: 10),
+                            prod.name,
+                            style: const TextStyle(color: Colors.white, fontSize: 11),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
-                  )),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 80),
             ],
           ),
         ),
 
-        // Barra inferior de Cierre de Venta y Descuento de Inventario
+        // Barra Fija Inferior de Cobro
         if (widget.cart.isNotEmpty)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: EstradaTheme.cardBg,
-              border: Border(top: BorderSide(color: EstradaTheme.ember500, width: 1.5)),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: EstradaTheme.panelBg,
+              border: const Border(top: BorderSide(color: EstradaTheme.borderSubtle)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  blurRadius: 16,
+                  offset: const Offset(0, -4),
+                ),
+              ],
             ),
             child: Row(
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${widget.cart.fold<int>(0, (a, b) => a + b.quantity)} UNIDADES EN POS',
-                      style: const TextStyle(
-                        color: EstradaTheme.textLo,
-                        fontSize: 10,
-                        fontFamily: 'monospace',
-                      ),
+                      '$count unidades en POS',
+                      style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
                     ),
                     Text(
                       'S/ ${total.toStringAsFixed(2)}',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 18,
                         fontWeight: FontWeight.w900,
-                        fontFamily: 'monospace',
+                        fontSize: 20,
                       ),
                     ),
                   ],
                 ),
-                const Spacer(),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: EstradaTheme.ember500,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  onPressed: _openCheckoutSheet,
-                  icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                  label: const Text(
-                    'CERRAR VENTA / COBRAR',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: EstradaTheme.ember500,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: _showCheckoutDialog,
+                    icon: const Icon(Icons.point_of_sale_rounded, size: 20),
+                    label: const Text(
+                      'CERRAR VENTA / COBRAR',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
                   ),
                 ),
               ],
@@ -2157,10 +2551,86 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
       ],
     );
   }
+
+  Widget _buildCartItemCard(PosCartItem item) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: EstradaTheme.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: EstradaTheme.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 44,
+              height: 44,
+              color: EstradaTheme.ink950,
+              child: Image.network(
+                widget.resolveImageUrl(item.product.imageUrl),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => const Icon(Icons.oil_barrel_rounded, color: EstradaTheme.textDim),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.product.name,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  'S/ ${item.product.salePrice.toStringAsFixed(2)} c/u • Stock: ${item.product.stockCurrent.toStringAsFixed(0)}',
+                  style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  if (item.quantity > 1) {
+                    item.quantity -= 1;
+                  } else {
+                    widget.cart.remove(item);
+                  }
+                  widget.onCartChanged();
+                },
+                icon: const Icon(Icons.remove_circle_outline_rounded, color: EstradaTheme.textLo, size: 20),
+              ),
+              Text(
+                '${item.quantity}',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  item.quantity += 1;
+                  widget.onCartChanged();
+                },
+                icon: const Icon(Icons.add_circle_outline_rounded, color: EstradaTheme.ember500, size: 20),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ============================================================================
-// PESTAÑA 3: CATÁLOGO DE PRODUCTOS & CARGA DE IMAGEN POR CELULAR O ENLACE URL
+// TAB 3: CATÁLOGO DE PRODUCTOS & EDITOR CON FOTO DESDE CELULAR O ENLACE URL
 // ============================================================================
 class CatalogManagerView extends StatefulWidget {
   final String baseUrl;
@@ -2169,7 +2639,7 @@ class CatalogManagerView extends StatefulWidget {
   final Future<void> Function({String query}) onRefresh;
   final void Function(ProductModel) onEditProduct;
   final VoidCallback onCreateProduct;
-  final void Function(ProductModel) onSendToPosWeb;
+  final Future<void> Function(ProductModel) onSendToPosWeb;
 
   const CatalogManagerView({
     super.key,
@@ -2187,192 +2657,286 @@ class CatalogManagerView extends StatefulWidget {
 }
 
 class _CatalogManagerViewState extends State<CatalogManagerView> {
-  String _search = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _selectedCategory = 'TODOS';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final filtered = widget.products.where((p) {
-      if (_search.isEmpty) return true;
-      final q = _search.toLowerCase();
-      return p.name.toLowerCase().contains(q) ||
-          p.sku.toLowerCase().contains(q) ||
-          p.barcode.toLowerCase().contains(q) ||
-          p.brandName.toLowerCase().contains(q);
+      final matchesQuery = _searchCtrl.text.isEmpty ||
+          p.name.toLowerCase().contains(_searchCtrl.text.toLowerCase()) ||
+          p.sku.toLowerCase().contains(_searchCtrl.text.toLowerCase()) ||
+          p.barcode.contains(_searchCtrl.text);
+
+      final matchesCat = _selectedCategory == 'TODOS' ||
+          p.categoryName.toUpperCase().contains(_selectedCategory.toUpperCase()) ||
+          p.name.toUpperCase().contains(_selectedCategory.toUpperCase());
+
+      return matchesQuery && matchesCat;
     }).toList();
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-          child: Row(
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: EstradaTheme.ember500,
+        foregroundColor: Colors.white,
+        elevation: 6,
+        onPressed: widget.onCreateProduct,
+        icon: const Icon(Icons.add_a_photo_rounded),
+        label: const Text('Nuevo Producto', style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        children: [
+          Row(
             children: [
-              Expanded(
-                child: TextField(
-                  onChanged: (v) => setState(() => _search = v),
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded, color: EstradaTheme.textLo, size: 18),
-                    hintText: 'Buscar por nombre, SKU o código...',
-                    hintStyle: const TextStyle(color: EstradaTheme.textDim, fontSize: 12),
-                    filled: true,
-                    fillColor: EstradaTheme.panelBg,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: EstradaTheme.borderSubtle),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: EstradaTheme.ember500.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Text(
+                  'Catálogo & Fotografías',
+                  style: TextStyle(color: EstradaTheme.ember500, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${filtered.length} SKUs en PostgreSQL',
+                style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11, fontFamily: 'monospace'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Gestión de Productos',
+            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Toma fotos de bidones o filtros con la cámara del celular o ingresa enlaces para guardarlos en la base de datos.',
+            style: TextStyle(color: EstradaTheme.textLo, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+
+          // Buscador
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: EstradaTheme.cardBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: EstradaTheme.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.search_rounded, color: EstradaTheme.textLo, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: const InputDecoration(
+                      hintText: 'Buscar por nombre, SKU o código...',
+                      hintStyle: TextStyle(color: EstradaTheme.textDim, fontSize: 12),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                if (_searchCtrl.text.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.close, color: EstradaTheme.textLo, size: 16),
+                    onPressed: () {
+                      _searchCtrl.clear();
+                      setState(() {});
+                    },
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Chips de Filtro
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: ['TODOS', 'ACEITES', 'FILTROS', 'GRASAS', 'REFRIGERANTES'].map((c) {
+                final sel = _selectedCategory == c;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(c, style: TextStyle(color: sel ? Colors.white : EstradaTheme.textLo, fontSize: 11, fontWeight: FontWeight.bold)),
+                    selected: sel,
+                    selectedColor: EstradaTheme.ember500,
+                    backgroundColor: EstradaTheme.cardBg,
+                    side: const BorderSide(color: EstradaTheme.borderSubtle),
+                    onSelected: (_) => setState(() => _selectedCategory = c),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Lista de Tarjetas
+          if (filtered.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: EstradaTheme.cardBg,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: EstradaTheme.borderSubtle),
+              ),
+              child: const Center(
+                child: Text('No se encontraron productos con ese filtro.', style: TextStyle(color: EstradaTheme.textLo)),
+              ),
+            )
+          else
+            ...filtered.map((prod) => _buildProductCard(prod)),
+          const SizedBox(height: 80),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductCard(ProductModel prod) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: EstradaTheme.cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: EstradaTheme.borderSubtle),
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  width: 74,
+                  height: 74,
+                  color: EstradaTheme.ink950,
+                  child: Image.network(
+                    widget.resolveImageUrl(prod.imageUrl),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => const Center(
+                      child: Icon(Icons.oil_barrel_rounded, color: EstradaTheme.textDim, size: 30),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: EstradaTheme.ember500,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      prod.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'SKU: ${prod.sku} • EAN: ${prod.barcode}',
+                      style: const TextStyle(color: EstradaTheme.textDim, fontSize: 11),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Text(
+                          'S/ ${prod.salePrice.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: EstradaTheme.amber400,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: prod.stockCurrent > prod.stockMin
+                                ? EstradaTheme.emerald500.withValues(alpha: 0.15)
+                                : EstradaTheme.red400.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Stock: ${prod.stockCurrent.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              color: prod.stockCurrent > prod.stockMin
+                                  ? EstradaTheme.emerald400
+                                  : EstradaTheme.red400,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                onPressed: widget.onCreateProduct,
-                icon: const Icon(Icons.add_a_photo_rounded, size: 16),
-                label: const Text('Nuevo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
               ),
             ],
           ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            color: EstradaTheme.ember500,
-            onRefresh: () => widget.onRefresh(),
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: filtered.length,
-              itemBuilder: (ctx, idx) {
-                final p = filtered[idx];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: EstradaTheme.panelBg,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: EstradaTheme.borderSubtle),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: EstradaTheme.borderSubtle),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () => widget.onEditProduct(p),
-                        child: Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: 68,
-                                height: 68,
-                                color: EstradaTheme.ink950,
-                                child: Image.network(
-                                  widget.resolveImageUrl(p.imageUrl),
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) => const Icon(
-                                    Icons.oil_barrel_rounded,
-                                    color: EstradaTheme.ember500,
-                                    size: 32,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              right: 2,
-                              bottom: 2,
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(
-                                  color: EstradaTheme.ember500,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.camera_alt_rounded, size: 11, color: Colors.white),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${p.brandName} • ${p.presentation}',
-                              style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'SKU: ${p.sku} • Stock: ${p.stockCurrent.toStringAsFixed(0)} unid.',
-                              style: const TextStyle(
-                                color: EstradaTheme.emerald400,
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            'S/ ${p.salePrice.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              color: EstradaTheme.amber400,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 15,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: 'Editar y Cambiar Foto',
-                                onPressed: () => widget.onEditProduct(p),
-                                icon: const Icon(Icons.edit_note_rounded, color: Colors.white, size: 20),
-                              ),
-                              IconButton(
-                                tooltip: 'Enviar a POS Web',
-                                onPressed: () => widget.onSendToPosWeb(p),
-                                icon: const Icon(
-                                  Icons.add_shopping_cart_rounded,
-                                  color: EstradaTheme.ember500,
-                                  size: 19,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
+                  onPressed: () => widget.onEditProduct(prod),
+                  icon: const Icon(Icons.edit_rounded, color: Colors.white70, size: 16),
+                  label: const Text('Editar / Foto', style: TextStyle(color: Colors.white, fontSize: 11)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: EstradaTheme.cardSubtle,
+                    foregroundColor: EstradaTheme.amber400,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: EstradaTheme.borderSubtle),
+                    ),
                   ),
-                );
-              },
-            ),
+                  onPressed: () => widget.onSendToPosWeb(prod),
+                  icon: const Icon(Icons.add_shopping_cart_rounded, size: 16),
+                  label: const Text('Enviar a POS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 // ============================================================================
-// MODAL DE CREACIÓN / EDICIÓN DE PRODUCTO CON FOTO DESDE CELULAR Y ENLACE URL
+// HOJA DE EDICIÓN / REGISTRO DE PRODUCTO CON FOTOGRAFÍA (CÁMARA / GALERÍA)
 // ============================================================================
 class ProductEditorSheet extends StatefulWidget {
   final String baseUrl;
@@ -2399,202 +2963,176 @@ class ProductEditorSheet extends StatefulWidget {
 }
 
 class _ProductEditorSheetState extends State<ProductEditorSheet> {
-  final ImagePicker _picker = ImagePicker();
-  late final TextEditingController _skuCtrl;
-  late final TextEditingController _barcodeCtrl;
-  late final TextEditingController _nameCtrl;
-  late final TextEditingController _presentationCtrl;
-  late final TextEditingController _purchasePriceCtrl;
-  late final TextEditingController _salePriceCtrl;
-  late final TextEditingController _stockCtrl;
-  late final TextEditingController _viscosityCtrl;
-  late final TextEditingController _imageUrlCtrl;
+  late TextEditingController _nameCtrl;
+  late TextEditingController _skuCtrl;
+  late TextEditingController _barcodeCtrl;
+  late TextEditingController _descCtrl;
+  late TextEditingController _costCtrl;
+  late TextEditingController _priceCtrl;
+  late TextEditingController _stockCtrl;
+  late TextEditingController _imageUrlCtrl;
 
-  String _selectedCatId = '';
-  String _selectedBrandId = '';
+  String? _selectedCategoryId;
+  String? _selectedBrandId;
+  bool _saving = false;
   bool _uploadingImage = false;
-  bool _savingProduct = false;
+
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
     final p = widget.existingProduct;
-    _skuCtrl = TextEditingController(
-      text: p?.sku ?? 'EST-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}',
-    );
-    _barcodeCtrl = TextEditingController(
-      text: p?.barcode ?? widget.prefilledBarcode ?? '',
-    );
     _nameCtrl = TextEditingController(text: p?.name ?? '');
-    _presentationCtrl = TextEditingController(text: p?.presentation ?? '1 Galón (3.78L)');
-    _purchasePriceCtrl = TextEditingController(
-      text: p != null ? p.purchasePrice.toStringAsFixed(2) : '110.00',
-    );
-    _salePriceCtrl = TextEditingController(
-      text: p != null ? p.salePrice.toStringAsFixed(2) : '155.00',
-    );
-    _stockCtrl = TextEditingController(
-      text: p != null ? p.stockCurrent.toStringAsFixed(0) : '12',
-    );
-    _viscosityCtrl = TextEditingController(text: p?.viscosity ?? '5W-30');
-    _imageUrlCtrl = TextEditingController(text: p?.imageUrl ?? '/media/line-synthetic.png');
+    _skuCtrl = TextEditingController(text: p?.sku ?? 'LUB-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}');
+    _barcodeCtrl = TextEditingController(text: p?.barcode.isNotEmpty == true ? p!.barcode : (widget.prefilledBarcode ?? ''));
+    _descCtrl = TextEditingController(text: p?.description ?? '');
+    _costCtrl = TextEditingController(text: p != null ? p.purchasePrice.toStringAsFixed(2) : '35.00');
+    _priceCtrl = TextEditingController(text: p != null ? p.salePrice.toStringAsFixed(2) : '48.00');
+    _stockCtrl = TextEditingController(text: p != null ? p.stockCurrent.toStringAsFixed(0) : '20');
+    _imageUrlCtrl = TextEditingController(text: p?.imageUrl ?? '');
 
-    _selectedCatId = p?.categoryId.isNotEmpty == true
-        ? p!.categoryId
-        : (widget.categories.isNotEmpty ? widget.categories.first['id']! : '');
-    _selectedBrandId = p?.brandId.isNotEmpty == true
-        ? p!.brandId
-        : (widget.brands.isNotEmpty ? widget.brands.first['id']! : '');
+    _selectedCategoryId = p?.categoryId;
+    _selectedBrandId = p?.brandId;
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _skuCtrl.dispose();
+    _barcodeCtrl.dispose();
+    _descCtrl.dispose();
+    _costCtrl.dispose();
+    _priceCtrl.dispose();
+    _stockCtrl.dispose();
+    _imageUrlCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _pickAndUploadImage(ImageSource source) async {
     try {
-      final XFile? picked = await _picker.pickImage(
-        source: source,
-        maxWidth: 1080,
-        maxHeight: 1080,
-        imageQuality: 82,
-      );
-      if (picked == null) return;
+      final xfile = await _picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85);
+      if (xfile == null) return;
 
       setState(() => _uploadingImage = true);
-      final bytes = await picked.readAsBytes();
-      final b64 = base64Encode(bytes);
+
+      final bytes = await xfile.readAsBytes();
+      final filename = xfile.name.isNotEmpty ? xfile.name : 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       final clean = widget.baseUrl.endsWith('/')
           ? widget.baseUrl.substring(0, widget.baseUrl.length - 1)
           : widget.baseUrl;
 
-      final res = await http.post(
-        Uri.parse('$clean/v1/media/upload'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'filename': picked.name,
-          'mime_type': 'image/jpeg',
-          'base64_data': b64,
-        }),
-      );
+      final req = http.MultipartRequest('POST', Uri.parse('$clean/v1/media/upload'));
+      req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
 
-      final body = jsonDecode(utf8.decode(res.bodyBytes));
-      if ((res.statusCode == 201 || res.statusCode == 200) && body['success'] == true) {
-        final uploadedUrl = body['data']['url'].toString();
-        setState(() {
-          _imageUrlCtrl.text = uploadedUrl;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              backgroundColor: EstradaTheme.emerald400,
-              content: Text(
-                'Fotografía subida y guardada en PostgreSQL',
-                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+      final streamedRes = await req.send();
+      final res = await http.Response.fromStream(streamedRes);
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
+        if (body['success'] == true && body['data'] != null) {
+          final savedUrl = body['data']['url']?.toString() ?? '';
+          setState(() {
+            _imageUrlCtrl.text = savedUrl;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                backgroundColor: EstradaTheme.emerald500,
+                content: Text('¡Fotografía guardada con éxito en PostgreSQL (media_blobs)!'),
               ),
-            ),
-          );
+            );
+          }
         }
-      } else {
-        throw Exception(body['error']?['message'] ?? 'No se pudo subir la imagen');
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: EstradaTheme.red400, content: Text('Error al subir foto: $e')),
+          SnackBar(backgroundColor: EstradaTheme.red400, content: Text('Error subiendo imagen: $e')),
         );
       }
     } finally {
-      if (mounted) setState(() => _uploadingImage = false);
+      if (mounted) {
+        setState(() => _uploadingImage = false);
+      }
     }
   }
 
   Future<void> _saveProduct() async {
-    if (_nameCtrl.text.trim().isEmpty || _skuCtrl.text.trim().isEmpty) {
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: EstradaTheme.red400,
-          content: Text('Nombre y SKU son obligatorios'),
-        ),
+        const SnackBar(content: Text('Ingrese el nombre del producto.')),
       );
       return;
     }
 
-    setState(() => _savingProduct = true);
+    setState(() => _saving = true);
+
     try {
       final clean = widget.baseUrl.endsWith('/')
           ? widget.baseUrl.substring(0, widget.baseUrl.length - 1)
           : widget.baseUrl;
 
-      final isEditing = widget.existingProduct != null;
-      final url = isEditing
-          ? '$clean/v1/products/${widget.existingProduct!.id}'
-          : '$clean/v1/products';
-
       final payload = {
-        'sku': _skuCtrl.text.trim().toUpperCase(),
+        'name': name,
+        'sku': _skuCtrl.text.trim(),
         'barcode': _barcodeCtrl.text.trim(),
-        'name': _nameCtrl.text.trim(),
-        'description': 'Sincronizado desde App Móvil Flutter Estrada',
-        if (_selectedCatId.isNotEmpty) 'category_id': _selectedCatId,
-        if (_selectedBrandId.isNotEmpty) 'brand_id': _selectedBrandId,
-        'presentation': _presentationCtrl.text.trim(),
-        'purchase_price': double.tryParse(_purchasePriceCtrl.text.trim()) ?? 0,
-        'sale_price': double.tryParse(_salePriceCtrl.text.trim()) ?? 0,
-        'stock_current': double.tryParse(_stockCtrl.text.trim()) ?? 0,
-        'stock_min': 5,
+        'description': _descCtrl.text.trim(),
+        'purchase_price': double.tryParse(_costCtrl.text.trim()) ?? 0.0,
+        'sale_price': double.tryParse(_priceCtrl.text.trim()) ?? 0.0,
+        'stock_current': double.tryParse(_stockCtrl.text.trim()) ?? 0.0,
+        'stock_min': 5.0,
         'image_url': _imageUrlCtrl.text.trim(),
-        'technical_specs': {
-          'viscosity': _viscosityCtrl.text.trim(),
-          'oil_type': 'Full Sintético',
-          'api_norm': 'API SP',
-          'lifespan_km': 10000,
-        },
+        'category_id': _selectedCategoryId,
+        'brand_id': _selectedBrandId,
       };
 
-      final res = isEditing
-          ? await http.put(
-              Uri.parse(url),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(payload),
-            )
-          : await http.post(
-              Uri.parse(url),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(payload),
-            );
+      http.Response res;
+      if (widget.existingProduct != null) {
+        res = await http.put(
+          Uri.parse('$clean/v1/products/${widget.existingProduct!.id}'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(payload),
+        );
+      } else {
+        res = await http.post(
+          Uri.parse('$clean/v1/products'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(payload),
+        );
+      }
 
-      final body = jsonDecode(utf8.decode(res.bodyBytes));
-      if ((res.statusCode == 200 || res.statusCode == 201) && body['success'] == true) {
+      if (res.statusCode == 200 || res.statusCode == 201) {
         widget.onSaved();
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              backgroundColor: EstradaTheme.emerald400,
-              content: Text(
-                isEditing
-                    ? 'Producto actualizado en PostgreSQL y Web'
-                    : 'Nuevo producto creado en PostgreSQL y Web',
-                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-              ),
+              backgroundColor: EstradaTheme.emerald500,
+              content: Text('¡Producto "$name" guardado correctamente en PostgreSQL!'),
             ),
           );
         }
-      } else {
-        throw Exception(body['error']?['message'] ?? 'Error al guardar en base de datos');
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: EstradaTheme.red400, content: Text('$e')),
+          SnackBar(backgroundColor: EstradaTheme.red400, content: Text('Error guardando producto: $e')),
         );
       }
     } finally {
-      if (mounted) setState(() => _savingProduct = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isEditing = widget.existingProduct != null;
+    final isEdit = widget.existingProduct != null;
+
     return Padding(
       padding: EdgeInsets.only(
         left: 20,
@@ -2604,20 +3142,24 @@ class _ProductEditorSheetState extends State<ProductEditorSheet> {
       ),
       child: SingleChildScrollView(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                const Icon(Icons.auto_awesome_rounded, color: EstradaTheme.ember500, size: 18),
-                const SizedBox(width: 6),
-                Text(
-                  isEditing ? 'EDITAR PRODUCTO EN BD' : 'NUEVO PRODUCTO EN BD',
-                  style: const TextStyle(
-                    color: EstradaTheme.ember500,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: EstradaTheme.ember500.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    isEdit ? 'EDITAR PRODUCTO' : 'REGISTRO DE PRODUCTO',
+                    style: const TextStyle(
+                      color: EstradaTheme.ember500,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
                 const Spacer(),
@@ -2627,87 +3169,80 @@ class _ProductEditorSheetState extends State<ProductEditorSheet> {
                 ),
               ],
             ),
+            const SizedBox(height: 6),
+            Text(
+              isEdit ? 'Actualizar Datos y Fotografía' : 'Dar de Alta Nuevo Producto',
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 14),
 
-            // Sección de Fotografía por Celular (Cámara / Galería) o Enlace URL
+            // SECCIÓN DE FOTOGRAFÍA (CÁMARA / GALERÍA / URL)
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: EstradaTheme.panelBg,
-                borderRadius: BorderRadius.circular(16),
+                color: EstradaTheme.cardBg,
+                borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: EstradaTheme.borderSubtle),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Text('FOTOGRAFÍA DEL PRODUCTO', style: TextStyle(color: EstradaTheme.amber400, fontSize: 11, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
-                          width: 72,
-                          height: 72,
+                          width: 70,
+                          height: 70,
                           color: EstradaTheme.ink950,
                           child: _uploadingImage
-                              ? const Center(
-                                  child: CircularProgressIndicator(color: EstradaTheme.ember500),
-                                )
+                              ? const Center(child: CircularProgressIndicator(color: EstradaTheme.ember500, strokeWidth: 2))
                               : Image.network(
                                   widget.resolveImageUrl(_imageUrlCtrl.text),
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) => const Icon(
-                                    Icons.oil_barrel_rounded,
-                                    color: EstradaTheme.ember500,
-                                    size: 34,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => const Center(
+                                    child: Icon(Icons.add_a_photo_outlined, color: EstradaTheme.textDim, size: 28),
                                   ),
                                 ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Imagen del Producto (BD PostgreSQL)',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
                             Row(
                               children: [
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: EstradaTheme.ember500,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                    ),
-                                    onPressed: _uploadingImage
-                                        ? null
-                                        : () => _pickAndUploadImage(ImageSource.camera),
-                                    icon: const Icon(Icons.photo_camera_rounded, size: 15),
-                                    label: const Text('Cámara', style: TextStyle(fontSize: 11)),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: EstradaTheme.ember500,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                   ),
+                                  onPressed: _uploadingImage ? null : () => _pickAndUploadImage(ImageSource.camera),
+                                  icon: const Icon(Icons.camera_alt_rounded, size: 15),
+                                  label: const Text('Cámara', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      side: const BorderSide(color: EstradaTheme.borderSubtle),
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                    ),
-                                    onPressed: _uploadingImage
-                                        ? null
-                                        : () => _pickAndUploadImage(ImageSource.gallery),
-                                    icon: const Icon(Icons.photo_library_rounded, size: 15),
-                                    label: const Text('Galería', style: TextStyle(fontSize: 11)),
+                                const SizedBox(width: 6),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: EstradaTheme.borderSubtle),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                   ),
+                                  onPressed: _uploadingImage ? null : () => _pickAndUploadImage(ImageSource.gallery),
+                                  icon: const Icon(Icons.photo_library_rounded, color: Colors.white, size: 15),
+                                  label: const Text('Galería', style: TextStyle(color: Colors.white, fontSize: 11)),
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Guarda directo en PostgreSQL (BYTEA)',
+                              style: TextStyle(color: EstradaTheme.textDim, fontSize: 10),
                             ),
                           ],
                         ),
@@ -2717,80 +3252,68 @@ class _ProductEditorSheetState extends State<ProductEditorSheet> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: _imageUrlCtrl,
-                    onChanged: (_) => setState(() {}),
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                     decoration: InputDecoration(
-                      labelText: 'O pegar enlace URL de imagen (https://... o /v1/media/...)',
+                      labelText: 'O ingresar enlace directo de imagen (URL)',
                       labelStyle: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
                       filled: true,
                       fillColor: EstradaTheme.ink950,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: EstradaTheme.borderSubtle),
+                      ),
                     ),
+                    onChanged: (_) => setState(() {}),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 14),
 
-            const SizedBox(height: 12),
+            // CAMPOS DE DATOS
+            TextField(
+              controller: _nameCtrl,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: _inputDecor('Nombre del Producto (ej. Castrol EDGE 5W-30)'),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _skuCtrl,
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
-                    decoration: InputDecoration(
-                      labelText: 'SKU *',
-                      filled: true,
-                      fillColor: EstradaTheme.panelBg,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    decoration: _inputDecor('Código SKU'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: TextField(
                     controller: _barcodeCtrl,
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
-                    decoration: InputDecoration(
-                      labelText: 'Código de Barras',
-                      filled: true,
-                      fillColor: EstradaTheme.panelBg,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    decoration: _inputDecor('Código de Barras (EAN)'),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _nameCtrl,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              decoration: InputDecoration(
-                labelText: 'Nombre Comercial del Producto *',
-                filled: true,
-                fillColor: EstradaTheme.panelBg,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
             ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: TextField(
-                    controller: _salePriceCtrl,
+                    controller: _costCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(
-                      color: EstradaTheme.amber400,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      fontFamily: 'monospace',
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Precio Venta (S/) *',
-                      filled: true,
-                      fillColor: EstradaTheme.panelBg,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    decoration: _inputDecor('Precio Compra (S/)'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _priceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    decoration: _inputDecor('Precio Venta (S/)'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -2798,74 +3321,55 @@ class _ProductEditorSheetState extends State<ProductEditorSheet> {
                   child: TextField(
                     controller: _stockCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(
-                      color: EstradaTheme.emerald400,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      fontFamily: 'monospace',
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Stock Actual',
-                      filled: true,
-                      fillColor: EstradaTheme.panelBg,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    decoration: _inputDecor('Stock Actual'),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _presentationCtrl,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                    decoration: InputDecoration(
-                      labelText: 'Presentación',
-                      filled: true,
-                      fillColor: EstradaTheme.panelBg,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _viscosityCtrl,
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
-                    decoration: InputDecoration(
-                      labelText: 'Viscosidad SAE',
-                      filled: true,
-                      fillColor: EstradaTheme.panelBg,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
+            TextField(
+              controller: _descCtrl,
+              maxLines: 2,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              decoration: _inputDecor('Descripción técnica / viscosidad...'),
             ),
             const SizedBox(height: 18),
+
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: EstradaTheme.ember500,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                onPressed: _savingProduct ? null : _saveProduct,
-                icon: const Icon(Icons.save_rounded, size: 18),
+                onPressed: _saving ? null : _saveProduct,
+                icon: _saving
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.save_rounded, size: 20),
                 label: Text(
-                  _savingProduct
-                      ? 'GUARDANDO EN POSTGRESQL...'
-                      : (isEditing ? 'ACTUALIZAR PRODUCTO EN BD' : 'GUARDAR PRODUCTO EN BD'),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  _saving ? 'GUARDANDO EN POSTGRESQL...' : (isEdit ? 'ACTUALIZAR PRODUCTO' : 'GUARDAR PRODUCTO'),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  InputDecoration _inputDecor(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: EstradaTheme.textLo, fontSize: 12),
+      filled: true,
+      fillColor: EstradaTheme.cardBg,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: EstradaTheme.borderSubtle),
       ),
     );
   }
