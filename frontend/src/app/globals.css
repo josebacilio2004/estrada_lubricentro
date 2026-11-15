@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink-950: #0A0A0B;
+  --ink-900: #121214;
+  --ink-700: #2A2A2E;
+  --cream-100: #EFEBE6;
+  --cream-50: #F8F6F2;
+  --ember-500: #F26A1B;
+  --ember-600: #D9560E;
+  --text-hi: #F5F5F5;
+  --text-lo: #9A9A9F;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: #0A0A0B;
+}
+
+body {
+  background-color: var(--ink-950);
+  color: var(--text-hi);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Glassmorphism & premium card edges */
+.card-dark {
+  background: rgba(18, 18, 20, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.card-cream {
+  background: #F8F6F2;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Linear divider line matching DOSLA spec bar */
+.spec-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Motion Graphics & Ticker Animations */
+@keyframes ticker {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-ticker {
+  display: flex;
+  width: max-content;
+  animation: ticker 28s linear infinite;
+}
+
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(1000%);
+    opacity: 0;
+  }
+}
+
+.animate-scanline {
+  animation: scanline 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 4s ease-in-out infinite;
+}
+
+@keyframes hudFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-hud-float {
+  animation: hudFloat 5s ease-in-out infinite;
+}
+
+/* Print 80mm format for POS */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #thermal-ticket, #thermal-ticket * {
+    visibility: visible;
+  }
+  #thermal-ticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    margin: 0;
+    padding: 2mm;
+    font-size: 11px;
+    line-height: 1.2;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+}

@@ -1,0 +1,37 @@
+{
+    admin off
+    auto_https off
+}
+
+:80 {
+    # Compresión automática
+    encode zstd gzip
+
+    # Cabeceras de seguridad HTTP
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(self), microphone=(), camera=()"
+        -Server
+    }
+
+    # Caché estático optimizado para medios y videos en túneles móviles
+    @static_media path /media/* /_next/static/*
+    header @static_media Cache-Control "public, max-age=31536000, immutable"
+
+    # Redirección de API
+    handle /v1/* {
+        reverse_proxy api:8080
+    }
+
+    # Redirección de webhook n8n
+    handle /webhook/* {
+        reverse_proxy n8n:5678
+    }
+
+    # Frontend Next.js Standalone
+    handle {
+        reverse_proxy web:3000
+    }
+}

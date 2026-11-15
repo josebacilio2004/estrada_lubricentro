@@ -1,0 +1,239 @@
+services:
+  # 1. REVERSE PROXY & AUTO-SSL (HTTP/3 + Compresión Zstd/Gzip)
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: estrada_proxy
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+      - "8443:443"
+      - "8443:443/udp" # Soporte HTTP/3 (QUIC)
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - frontend_net
+    depends_on:
+      web:
+        condition: service_started
+      api:
+        condition: service_started
+
+  # 2. FRONTEND: LANDING PAGE + ERP/POS (Next.js Standalone)
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: estrada_web
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8080/v1
+    ports:
+      - "3001:3000"
+    networks:
+      - frontend_net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # 3. BACKEND API CORE (Golang 1.23 Compilado en Alpine)
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: api-runner
+    container_name: estrada_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=production
+      - TZ=America/Lima
+      - DB_URL=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable&pool_max_conns=50
+      - REDIS_ADDR=redis:6379
+      - S3_ENDPOINT=http://minio:9000
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/lubricentro-notifications
+    ports:
+      - "8080:8080"
+    networks:
+      - frontend_net
+      - backend_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 256M
+
+  # 4. WORKER ASÍNCRONO & CRON SCHEDULER (Golang Asynq + SUNAT + Recordatorios)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: worker-runner
+    container_name: estrada_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=America/Lima
+      - DB_URL=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable&pool_max_conns=20
+      - REDIS_ADDR=redis:6379
+      - S3_ENDPOINT=http://minio:9000
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/lubricentro-notifications
+    networks:
+      - backend_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+
+  # 5. BASE DE DATOS TRANSACCIONAL (PostgreSQL 16 Optimizado)
+  postgres:
+    image: postgres:16-alpine
+    container_name: estrada_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-estrada_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-estrada_secure_pass_2026}
+      POSTGRES_DB: ${DB_NAME:-lubricentro_estrada}
+      TZ: America/Lima
+      PGTZ: America/Lima
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1536MB
+      -c maintenance_work_mem=128MB
+      -c work_mem=16MB
+      -c max_connections=200
+      -c random_page_cost=1.1
+      -c timezone='America/Lima'
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-estrada_admin} -d ${DB_NAME:-lubricentro_estrada}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 6. COLAS EN MEMORIA Y CACHÉ DE CATÁLOGO (Redis 7)
+  redis:
+    image: redis:7.4-alpine
+    container_name: estrada_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 7. ALMACENAMIENTO S3 COMPATIBLE (XMLs SUNAT, CDRs, PDFs 80mm/A4, Fotos)
+  minio:
+    image: pgsty/silo:latest
+    container_name: estrada_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-estrada_minio_root}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-estrada_minio_secret_2026}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 7.1 INICIALIZADOR AUTOMÁTICO DE BUCKETS S3
+  minio-init:
+    image: pgsty/silo:latest
+    container_name: estrada_minio_init
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_USER: ${MINIO_USER:-estrada_minio_root}
+      MINIO_PASSWORD: ${MINIO_PASSWORD:-estrada_minio_secret_2026}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $$MINIO_USER $$MINIO_PASSWORD; do
+        echo 'Esperando disponibilidad de MinIO S3...';
+        sleep 1;
+      done;
+      mc mb --ignore-existing local/sunat-cpe;
+      mc mb --ignore-existing local/public-assets;
+      mc anonymous set download local/public-assets;
+      echo 'Buckets S3 creados exitosamente.';
+      exit 0;
+      "
+    networks:
+      - backend_net
+
+  # 8. ORQUESTADOR DE MENSAJERÍA AUTOMÁTICA (WhatsApp + SMS Fallback)
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: estrada_n8n
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=America/Lima
+      - TZ=America/Lima
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - frontend_net
+      - backend_net
+
+networks:
+  frontend_net:
+    driver: bridge
+  backend_net:
+    driver: bridge
+    internal: false
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pg_data:
+  redis_data:
+  minio_data:
+  n8n_data:

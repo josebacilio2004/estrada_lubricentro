@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+.idea
+*.log
+.env
+tmp/
+dist/
+build/
+coverage/
+*.bak
+*.md
+!arquitectura_*.md

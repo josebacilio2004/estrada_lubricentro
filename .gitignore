@@ -1,0 +1,81 @@
+# ==============================================================================
+# Lubricentro Estrada - Git Ignore Configuration
+# ==============================================================================
+
+# Operating System & Cache Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+frontend/.env
+*.pem
+*.key
+*.cert
+
+# Node.js & Frontend Build Outputs
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Next.js Build Artifacts
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+dist/
+.vercel
+
+# Golang Binaries & Cache
+backend/bin/
+backend/tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+tools/*.exe
+tools/cloudflared.exe
+coverage.out
+*.test
+
+# IDEs & Editors
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Docker & Database Persistent Data
+postgres_data/
+redis_data/
+minio_data/
+docker-data/
+data/
+
+# Testing & Reports
+.nyc_output/
+coverage/
