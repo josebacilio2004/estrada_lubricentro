@@ -1487,7 +1487,7 @@ func (h *Handler) ConsumePosScanQueue(c *fiber.Ctx) error {
 			SET consumed = true
 			WHERE id IN (
 				SELECT id FROM pos_scan_queue
-				WHERE consumed = false AND session_id = $1
+				WHERE consumed = false AND ( = '' OR  = 'ALL' OR  = 'MAIN' OR session_id =  OR session_id = 'MAIN' OR session_id LIKE 'mobile%')$1
 				ORDER BY created_at ASC
 				LIMIT 20
 			)

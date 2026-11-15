@@ -23,10 +23,10 @@ void main() {
 // INFORMACIÓN DE VERSIÓN DE LA APP
 // ============================================================================
 class EstradaAppVersion {
-  static const String version = '1.2.0';
-  static const int buildNumber = 2;
+  static const String version = '1.2.1';
+  static const int buildNumber = 3;
   static const String releaseDate = 'Noviembre 2026';
-  static const String codename = 'Laser Focus HD';
+  static const String codename = 'Laser Precision & POS Sync';
   static const String fullString = 'v$version (Build $buildNumber)';
 }
 
@@ -169,7 +169,7 @@ class PosCartItem {
 }
 
 // ============================================================================
-// COMPONENTE VISOR DE CÁMARA HD CON ZOOM ÓPTICO Y LÁSER ESTRADA
+// COMPONENTE VISOR DE CÁMARA HD CON AUDIO BEEP Y ZOOM ESTRADA
 // ============================================================================
 class EstradaCameraViewfinder extends StatefulWidget {
   final MobileScannerController controller;
@@ -182,7 +182,7 @@ class EstradaCameraViewfinder extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onBarcodeDetected,
-    this.height = 260,
+    this.height = 250,
     this.statusHint = 'Centra el código de barras aquí',
     this.accentColor = EstradaTheme.ember500,
   });
@@ -268,7 +268,9 @@ class _EstradaCameraViewfinderState extends State<EstradaCameraViewfinder>
                 for (final b in capture.barcodes) {
                   final raw = b.rawValue;
                   if (raw != null && raw.trim().isNotEmpty) {
-                    HapticFeedback.mediumImpact();
+                    // Feedback Sonoro de Escaneo y Vibración Háptica
+                    SystemSound.play(SystemSoundType.click);
+                    HapticFeedback.heavyImpact();
                     widget.onBarcodeDetected(raw.trim());
                     break;
                   }
@@ -344,7 +346,7 @@ class _EstradaCameraViewfinderState extends State<EstradaCameraViewfinder>
               ),
             ),
 
-            // Barra Superior de Controles de Cámara (Linterna y Cambiar Lente)
+            // Controles de Cámara (Linterna y Rotar)
             Positioned(
               top: 10,
               right: 10,
@@ -370,7 +372,7 @@ class _EstradaCameraViewfinderState extends State<EstradaCameraViewfinder>
               ),
             ),
 
-            // Selector Rápido de Zoom (1.0x / 1.5x / 2.0x) para enfocar sin acercar demasiado el teléfono
+            // Selector Rápido de Zoom (1.0x / 1.5x / 2.0x)
             Positioned(
               bottom: 12,
               child: Container(
@@ -393,7 +395,7 @@ class _EstradaCameraViewfinderState extends State<EstradaCameraViewfinder>
               ),
             ),
 
-            // Píldora de estado en la parte superior izquierda
+            // Píldora de estado
             Positioned(
               top: 12,
               left: 12,
@@ -676,7 +678,7 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
         body: jsonEncode({
           'barcode': prod.barcode.isNotEmpty ? prod.barcode : prod.sku,
           'quantity': 1,
-          'session_id': 'estrada_mobile_session',
+          'session_id': 'MAIN',
         }),
       );
       if (res.statusCode == 200) {
@@ -769,10 +771,10 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
           children: [
             _versionRow('Versión:', EstradaAppVersion.version),
             _versionRow('Compilación:', 'Build ${EstradaAppVersion.buildNumber} (${EstradaAppVersion.releaseDate})'),
-            _versionRow('Cámara:', 'HD 1080p + Zoom Táctil (1x / 1.5x / 2x)'),
+            _versionRow('Cámara:', 'HD 1080p + Auto Switch + Beep'),
             _versionRow('Escáner:', 'EAN-13, EAN-8, Code 128, QR'),
             _versionRow('Base de Datos:', 'PostgreSQL Docker (Media Blobs)'),
-            _versionRow('Sincronización:', 'En tiempo real con POS Web'),
+            _versionRow('Sincronización:', 'Real-time con POS Web (:8088)'),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -963,7 +965,11 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
     );
   }
 
-  void _openProductEditorModal({ProductModel? existing, String? prefilledBarcode}) {
+  void _openProductEditorModal({
+    ProductModel? existing,
+    String? prefilledBarcode,
+    Function(ProductModel)? onSavedDirect,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -981,6 +987,7 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
         onSaved: () {
           _fetchProducts();
         },
+        onSavedDirect: onSavedDirect,
       ),
     );
   }
@@ -1124,6 +1131,7 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
         children: [
           // TAB 1: FUNCIONALIDAD 1 - ESCANEAR PRODUCTOS PARA SINCRONIZAR INVENTARIO
           InventoryScannerView(
+            isActive: _selectedIndex == 0,
             baseUrl: _baseUrl,
             products: _products,
             resolveImageUrl: resolveImageUrl,
@@ -1131,20 +1139,22 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
             onOpenProductEditor: _openProductEditorModal,
           ),
 
-          // TAB 2: FUNCIONALIDAD 2 - ESCANEAR EN VENTA -> CARGA AUTOMÁTICA EN POS WEB + DESCUENTO DE STOCK
+          // TAB 2: FUNCIONALIDAD 2 - ESCANEAR EN VENTA -> CARGA AUTOMÁTICA EN POS WEB
           PosScannerLiveView(
+            isActive: _selectedIndex == 1,
             baseUrl: _baseUrl,
             products: _products,
             cart: _posCart,
             resolveImageUrl: resolveImageUrl,
             onCartChanged: () => setState(() {}),
+            onOpenProductEditor: _openProductEditorModal,
             onSaleCompleted: () {
               setState(() => _posCart.clear());
               _fetchProducts();
             },
           ),
 
-          // TAB 3: CATÁLOGO DE PRODUCTOS & EDITOR CON FOTO DESDE CELULAR O ENLACE URL
+          // TAB 3: CATÁLOGO DE PRODUCTOS & EDITOR CON FOTO
           CatalogManagerView(
             baseUrl: _baseUrl,
             products: _products,
@@ -1167,7 +1177,9 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
           backgroundColor: EstradaTheme.panelBg,
           indicatorColor: EstradaTheme.ember500.withValues(alpha: 0.25),
           selectedIndex: _selectedIndex,
-          onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
+          onDestinationSelected: (idx) {
+            setState(() => _selectedIndex = idx);
+          },
           destinations: [
             const NavigationDestination(
               icon: Icon(Icons.qr_code_scanner_rounded, color: EstradaTheme.textLo),
@@ -1205,6 +1217,7 @@ class _EstradaMainShellState extends State<EstradaMainShell> {
 // TAB 1: FUNCIONALIDAD 1 - ESCANEAR PRODUCTOS PARA SINCRONIZAR INVENTARIO
 // ============================================================================
 class InventoryScannerView extends StatefulWidget {
+  final bool isActive;
   final String baseUrl;
   final List<ProductModel> products;
   final String Function(String) resolveImageUrl;
@@ -1213,6 +1226,7 @@ class InventoryScannerView extends StatefulWidget {
 
   const InventoryScannerView({
     super.key,
+    required this.isActive,
     required this.baseUrl,
     required this.products,
     required this.resolveImageUrl,
@@ -1251,6 +1265,17 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
   String? _lastScannedCode;
 
   @override
+  void didUpdateWidget(covariant InventoryScannerView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Control automático de cámara: Se apaga al salir y se enciende al entrar
+    if (oldWidget.isActive && !widget.isActive) {
+      _scannerController.stop();
+    } else if (!oldWidget.isActive && widget.isActive && _cameraExpanded) {
+      _scannerController.start();
+    }
+  }
+
+  @override
   void dispose() {
     _scannerController.dispose();
     _manualCodeCtrl.dispose();
@@ -1271,7 +1296,6 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
     _lastScannedCode = code;
 
     setState(() => _isProcessingScan = true);
-    HapticFeedback.mediumImpact();
 
     try {
       final clean = widget.baseUrl.endsWith('/')
@@ -1351,10 +1375,18 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
     );
   }
 
+  // MODAL MEJORADO: Permite escribir cantidad directamente, elegir Entrada/Salida/Fijar, y ver cálculo en tiempo real
   void _showInventorySyncSheet(ProductModel prod) {
-    double tempStock = prod.stockCurrent;
-    final noteCtrl = TextEditingController(text: 'Ajuste rápido desde App Móvil');
-    String movementType = 'IN';
+    String movementMode = 'IN'; // 'IN' = Entrada (+), 'OUT' = Salida (-), 'SET' = Fijar Total (=)
+    final qtyCtrl = TextEditingController(text: '10');
+    final noteCtrl = TextEditingController(text: 'Ingreso de mercadería');
+
+    double calcFinal(String mode, String textVal) {
+      final q = double.tryParse(textVal.trim()) ?? 0.0;
+      if (mode == 'IN') return prod.stockCurrent + q;
+      if (mode == 'OUT') return (prod.stockCurrent - q) >= 0 ? (prod.stockCurrent - q) : 0.0;
+      return q >= 0 ? q : 0.0; // SET
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1366,6 +1398,9 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (modalCtx, setModalState) {
+            final finalStock = calcFinal(movementMode, qtyCtrl.text);
+            final qtyEntered = double.tryParse(qtyCtrl.text.trim()) ?? 0.0;
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
@@ -1373,219 +1408,315 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
                 top: 20,
                 bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: EstradaTheme.ember500.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          'SINCRONIZACIÓN DE KARDEX',
-                          style: TextStyle(
-                            color: EstradaTheme.ember500,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(Icons.close, color: EstradaTheme.textLo),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          width: 60,
-                          height: 60,
-                          color: EstradaTheme.ink950,
-                          child: Image.network(
-                            widget.resolveImageUrl(prod.imageUrl),
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => const Icon(
-                              Icons.oil_barrel_rounded,
-                              color: EstradaTheme.textDim,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              prod.name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'SKU: ${prod.sku} • EAN: ${prod.barcode}',
-                              style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
-                            ),
-                            Text(
-                              'S/ ${prod.salePrice.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                color: EstradaTheme.amber400,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: EstradaTheme.ink950,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: EstradaTheme.borderSubtle),
-                    ),
-                    child: Column(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Stock Registrado:',
-                              style: TextStyle(color: EstradaTheme.textLo, fontSize: 13),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: EstradaTheme.ember500.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            'MOVIMIENTO DE KARDEX',
+                            style: TextStyle(
+                              color: EstradaTheme.ember500,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
                             ),
-                            Text(
-                              '${prod.stockCurrent.toStringAsFixed(0)} unidades',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                        const Divider(color: EstradaTheme.borderSubtle, height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Nuevo Stock a Guardar:',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: EstradaTheme.ember500.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: EstradaTheme.ember500),
-                              ),
-                              child: Text(
-                                '${tempStock.toStringAsFixed(0)} unid.',
-                                style: const TextStyle(
-                                  color: EstradaTheme.ember500,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _stockBtn('-10', () {
-                              if (tempStock >= 10) {
-                                setModalState(() => tempStock -= 10);
-                              }
-                            }),
-                            _stockBtn('-1', () {
-                              if (tempStock >= 1) {
-                                setModalState(() => tempStock -= 1);
-                              }
-                            }),
-                            _stockBtn('+1', () {
-                              setModalState(() => tempStock += 1);
-                            }),
-                            _stockBtn('+5', () {
-                              setModalState(() => tempStock += 5);
-                            }),
-                            _stockBtn('+10', () {
-                              setModalState(() => tempStock += 10);
-                            }),
-                          ],
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close, color: EstradaTheme.textLo),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: EstradaTheme.borderSubtle),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: 60,
+                            height: 60,
+                            color: EstradaTheme.ink950,
+                            child: Image.network(
+                              widget.resolveImageUrl(prod.imageUrl),
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => const Icon(
+                                Icons.oil_barrel_rounded,
+                                color: EstradaTheme.textDim,
+                              ),
+                            ),
                           ),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            widget.onOpenProductEditor(existing: prod);
-                          },
-                          child: const Text('EDITAR / FOTO', style: TextStyle(color: Colors.white, fontSize: 11)),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: EstradaTheme.emerald500,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                prod.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'SKU: ${prod.sku} • EAN: ${prod.barcode}',
+                                style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
+                              ),
+                              Text(
+                                'Stock actual: ${prod.stockCurrent.toStringAsFixed(0)} unid. • S/ ${prod.salePrice.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: EstradaTheme.amber400,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ),
-                          onPressed: () async {
-                            final delta = tempStock - prod.stockCurrent;
-                            movementType = delta >= 0 ? 'IN' : 'OUT';
-                            final qty = delta.abs();
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
 
-                            Navigator.pop(ctx);
-                            await _applyStockSync(
-                              productId: prod.id,
-                              barcode: prod.barcode,
-                              movementType: movementType,
-                              quantity: qty > 0 ? qty : 0,
-                              newTotalStock: tempStock,
-                              reason: noteCtrl.text.trim(),
-                            );
-                          },
-                          icon: const Icon(Icons.check_circle_rounded, size: 18),
-                          label: const Text(
-                            'ACTUALIZAR EN POSTGRESQL',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                    // Selector de Tipo de Movimiento: Entrada / Salida / Fijar Total
+                    const Text(
+                      'TIPO DE MOVIMIENTO:',
+                      style: TextStyle(color: EstradaTheme.textLo, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _movementTypePill(
+                            label: '+ ENTRADA',
+                            subtitle: 'Ingreso Stock',
+                            mode: 'IN',
+                            selectedMode: movementMode,
+                            color: EstradaTheme.emerald400,
+                            onTap: () {
+                              setModalState(() {
+                                movementMode = 'IN';
+                                noteCtrl.text = 'Ingreso por compra / recepción';
+                              });
+                            },
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _movementTypePill(
+                            label: '- SALIDA',
+                            subtitle: 'Merma / Taller',
+                            mode: 'OUT',
+                            selectedMode: movementMode,
+                            color: EstradaTheme.red400,
+                            onTap: () {
+                              setModalState(() {
+                                movementMode = 'OUT';
+                                noteCtrl.text = 'Salida por uso en taller / merma';
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _movementTypePill(
+                            label: '= FIJAR',
+                            subtitle: 'Conteo Físico',
+                            mode: 'SET',
+                            selectedMode: movementMode,
+                            color: EstradaTheme.amber400,
+                            onTap: () {
+                              setModalState(() {
+                                movementMode = 'SET';
+                                qtyCtrl.text = prod.stockCurrent.toStringAsFixed(0);
+                                noteCtrl.text = 'Ajuste de inventario físico';
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Campo de Entrada Numérica Directa
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: EstradaTheme.ink950,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: EstradaTheme.borderSubtle),
                       ),
-                    ],
-                  ),
-                ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                movementMode == 'SET'
+                                    ? 'CANTIDAD TOTAL DE INVENTARIO:'
+                                    : (movementMode == 'IN' ? 'CANTIDAD A INGRESAR:' : 'CANTIDAD A DESCONTAR:'),
+                                style: const TextStyle(color: EstradaTheme.textLo, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                              const Spacer(),
+                              Text(
+                                'Actual: ${prod.stockCurrent.toStringAsFixed(0)} unid.',
+                                style: const TextStyle(color: EstradaTheme.textDim, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: qtyCtrl,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                    fontFamily: 'monospace',
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: '0',
+                                    hintStyle: const TextStyle(color: EstradaTheme.textDim),
+                                    suffixText: 'unidades',
+                                    suffixStyle: const TextStyle(color: EstradaTheme.textLo, fontSize: 13),
+                                    filled: true,
+                                    fillColor: EstradaTheme.cardBg,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: const BorderSide(color: EstradaTheme.borderSubtle),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  ),
+                                  onChanged: (_) => setModalState(() {}),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Botones de incremento rápido para no tener que escribir si no se desea
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _quickAddBtn('+1', 1, qtyCtrl, () => setModalState(() {})),
+                              _quickAddBtn('+5', 5, qtyCtrl, () => setModalState(() {})),
+                              _quickAddBtn('+10', 10, qtyCtrl, () => setModalState(() {})),
+                              _quickAddBtn('+25', 25, qtyCtrl, () => setModalState(() {})),
+                              _quickAddBtn('+50', 50, qtyCtrl, () => setModalState(() {})),
+                            ],
+                          ),
+                          const Divider(color: EstradaTheme.borderSubtle, height: 24),
+
+                          // Resultado visual del stock
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('STOCK FINAL RESULTANTE:', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: EstradaTheme.ember500.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: EstradaTheme.ember500),
+                                ),
+                                child: Text(
+                                  '${finalStock.toStringAsFixed(0)} unidades',
+                                  style: const TextStyle(
+                                    color: EstradaTheme.ember500,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Motivo del movimiento
+                    TextField(
+                      controller: noteCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                      decoration: InputDecoration(
+                        labelText: 'Motivo / Referencia (Opcional)',
+                        labelStyle: const TextStyle(color: EstradaTheme.textLo, fontSize: 11),
+                        filled: true,
+                        fillColor: EstradaTheme.ink950,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: EstradaTheme.borderSubtle),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Botones de Acción
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: EstradaTheme.borderSubtle),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              widget.onOpenProductEditor(existing: prod);
+                            },
+                            child: const Text('EDITAR / FOTO', style: TextStyle(color: Colors.white, fontSize: 11)),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: EstradaTheme.emerald500,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            onPressed: () async {
+                              Navigator.pop(ctx);
+                              await _applyStockSync(
+                                productId: prod.id,
+                                barcode: prod.barcode,
+                                movementType: movementMode,
+                                quantity: qtyEntered,
+                                newTotalStock: finalStock,
+                                reason: noteCtrl.text.trim(),
+                              );
+                            },
+                            icon: const Icon(Icons.check_circle_rounded, size: 18),
+                            label: const Text(
+                              'ACTUALIZAR EN POSTGRESQL',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -1594,27 +1725,68 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
     );
   }
 
-  Widget _stockBtn(String label, VoidCallback onTap) {
+  Widget _movementTypePill({
+    required String label,
+    required String subtitle,
+    required String mode,
+    required String selectedMode,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    final sel = selectedMode == mode;
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: sel ? color.withValues(alpha: 0.2) : EstradaTheme.ink950,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: sel ? color : EstradaTheme.borderSubtle, width: sel ? 1.5 : 1),
+        ),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: sel ? color : Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(color: sel ? Colors.white70 : EstradaTheme.textDim, fontSize: 9),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _quickAddBtn(String label, int amount, TextEditingController ctrl, VoidCallback onUpdate) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        final cur = int.tryParse(ctrl.text.trim()) ?? 0;
+        ctrl.text = '${cur + amount}';
+        onUpdate();
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: EstradaTheme.cardSubtle,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(color: EstradaTheme.borderSubtle),
         ),
         child: Text(
           label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
         ),
       ),
     );
@@ -1707,7 +1879,16 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
             const Spacer(),
             TextButton.icon(
               style: TextButton.styleFrom(padding: EdgeInsets.zero),
-              onPressed: () => setState(() => _cameraExpanded = !_cameraExpanded),
+              onPressed: () {
+                setState(() {
+                  _cameraExpanded = !_cameraExpanded;
+                  if (_cameraExpanded && widget.isActive) {
+                    _scannerController.start();
+                  } else {
+                    _scannerController.stop();
+                  }
+                });
+              },
               icon: Icon(
                 _cameraExpanded ? Icons.videocam_off_rounded : Icons.videocam_rounded,
                 size: 16,
@@ -1736,14 +1917,36 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
         ),
         const SizedBox(height: 12),
 
-        // Visor de Cámara HD Mejorado con Zoom y Linterna
-        if (_cameraExpanded) ...[
+        // Solo renderiza la cámara si la pestaña está activa y expandida
+        if (widget.isActive && _cameraExpanded) ...[
           EstradaCameraViewfinder(
             controller: _scannerController,
             height: 250,
             statusHint: _isProcessingScan ? 'Consultando PostgreSQL...' : 'Autoenfoque HD Activo',
             accentColor: EstradaTheme.ember500,
             onBarcodeDetected: _lookupBarcode,
+          ),
+          const SizedBox(height: 12),
+        ] else if (!widget.isActive) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: EstradaTheme.cardBg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: EstradaTheme.borderSubtle),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.pause_circle_outline_rounded, color: EstradaTheme.amber400, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Cámara pausada en segundo plano para liberar recursos.',
+                    style: TextStyle(color: EstradaTheme.textDim, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -1941,20 +2144,24 @@ class _InventoryScannerViewState extends State<InventoryScannerView> {
 // TAB 2: FUNCIONALIDAD 2 - ESCANEAR EN VENTA -> POS WEB + DESCUENTO DE STOCK
 // ============================================================================
 class PosScannerLiveView extends StatefulWidget {
+  final bool isActive;
   final String baseUrl;
   final List<ProductModel> products;
   final List<PosCartItem> cart;
   final String Function(String) resolveImageUrl;
   final VoidCallback onCartChanged;
+  final void Function({ProductModel? existing, String? prefilledBarcode, Function(ProductModel)? onSavedDirect}) onOpenProductEditor;
   final VoidCallback onSaleCompleted;
 
   const PosScannerLiveView({
     super.key,
+    required this.isActive,
     required this.baseUrl,
     required this.products,
     required this.cart,
     required this.resolveImageUrl,
     required this.onCartChanged,
+    required this.onOpenProductEditor,
     required this.onSaleCompleted,
   });
 
@@ -1989,6 +2196,17 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
   String? _lastSyncedMessage;
 
   @override
+  void didUpdateWidget(covariant PosScannerLiveView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Control automático de cámara: Se apaga al salir y se enciende al entrar
+    if (oldWidget.isActive && !widget.isActive) {
+      _posScannerCtrl.stop();
+    } else if (!oldWidget.isActive && widget.isActive && _cameraActive) {
+      _posScannerCtrl.start();
+    }
+  }
+
+  @override
   void dispose() {
     _posScannerCtrl.dispose();
     super.dispose();
@@ -2008,7 +2226,6 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
     _lastPosCode = cleanCode;
 
     setState(() => _sendingScan = true);
-    HapticFeedback.mediumImpact();
 
     try {
       final clean = widget.baseUrl.endsWith('/')
@@ -2020,7 +2237,7 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
         body: jsonEncode({
           'barcode': cleanCode,
           'quantity': 1,
-          'session_id': 'mobile_live_session',
+          'session_id': 'MAIN', // Envía a la sesión activa del POS Web
         }),
       );
 
@@ -2042,6 +2259,19 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
             _lastSyncedMessage = 'Cargado en POS Web: ${prod.name} (S/ ${prod.salePrice.toStringAsFixed(2)})';
           });
         }
+      } else if (res.statusCode == 404) {
+        // Contingencia: Si el código escaneado no está en inventario, dar opción inmediata de registrarlo
+        if (mounted) {
+          _showUnregisteredPosProductDialog(cleanCode);
+        }
+      } else {
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
+        final msg = body['message'] ?? 'Error al escanear producto';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(backgroundColor: EstradaTheme.red400, content: Text('$msg')),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -2054,6 +2284,53 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
         setState(() => _sendingScan = false);
       }
     }
+  }
+
+  // DIÁLOGO DE CONTINGENCIA: Código no registrado al momento de una venta
+  void _showUnregisteredPosProductDialog(String barcode) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: EstradaTheme.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: EstradaTheme.amber400, size: 26),
+            SizedBox(width: 10),
+            Text('Producto No Registrado', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'El código escaneado "$barcode" no existe en la base de datos de Estrada ERP.\n\n¿Desea registrarlo ahora mismo para cargarlo automáticamente a la venta del POS?',
+          style: const TextStyle(color: EstradaTheme.textLo, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCELAR', style: TextStyle(color: EstradaTheme.textDim)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: EstradaTheme.ember500,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onOpenProductEditor(
+                prefilledBarcode: barcode,
+                onSavedDirect: (newProd) {
+                  // Lo agrega inmediatamente al carrito de venta
+                  _scanAndPushToWebPos(newProd.barcode.isNotEmpty ? newProd.barcode : newProd.sku);
+                },
+              );
+            },
+            icon: const Icon(Icons.add_shopping_cart_rounded, size: 16),
+            label: const Text('REGISTRAR Y VENDER', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showCheckoutDialog() {
@@ -2330,7 +2607,16 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
                       Switch(
                         value: _cameraActive,
                         activeThumbColor: EstradaTheme.ember500,
-                        onChanged: (v) => setState(() => _cameraActive = v),
+                        onChanged: (v) {
+                          setState(() {
+                            _cameraActive = v;
+                            if (_cameraActive && widget.isActive) {
+                              _posScannerCtrl.start();
+                            } else {
+                              _posScannerCtrl.stop();
+                            }
+                          });
+                        },
                       ),
                     ],
                   ),
@@ -2381,14 +2667,36 @@ class _PosScannerLiveViewState extends State<PosScannerLiveView> {
                 const SizedBox(height: 12),
               ],
 
-              // Visor HD de Escáner POS con Zoom Táctil
-              if (_cameraActive) ...[
+              // Solo renderiza la cámara si la pestaña POS está activa
+              if (widget.isActive && _cameraActive) ...[
                 EstradaCameraViewfinder(
                   controller: _posScannerCtrl,
                   height: 250,
                   statusHint: _sendingScan ? 'Enviando a POS Web...' : 'Escaneo Rápido de Caja',
                   accentColor: EstradaTheme.amber400,
                   onBarcodeDetected: _scanAndPushToWebPos,
+                ),
+                const SizedBox(height: 14),
+              ] else if (!widget.isActive) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: EstradaTheme.cardBg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: EstradaTheme.borderSubtle),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.pause_circle_outline_rounded, color: EstradaTheme.amber400, size: 18),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Cámara pausada para dar prioridad al escáner de inventario.',
+                          style: TextStyle(color: EstradaTheme.textDim, fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 14),
               ],
@@ -2946,6 +3254,7 @@ class ProductEditorSheet extends StatefulWidget {
   final List<Map<String, String>> categories;
   final List<Map<String, String>> brands;
   final VoidCallback onSaved;
+  final Function(ProductModel)? onSavedDirect;
 
   const ProductEditorSheet({
     super.key,
@@ -2956,6 +3265,7 @@ class ProductEditorSheet extends StatefulWidget {
     required this.categories,
     required this.brands,
     required this.onSaved,
+    this.onSavedDirect,
   });
 
   @override
@@ -3105,7 +3415,17 @@ class _ProductEditorSheetState extends State<ProductEditorSheet> {
       }
 
       if (res.statusCode == 200 || res.statusCode == 201) {
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
+        ProductModel? savedProd;
+        if (body['success'] == true && body['data'] != null) {
+          savedProd = ProductModel.fromJson(body['data'] as Map<String, dynamic>);
+        }
+
         widget.onSaved();
+        if (savedProd != null && widget.onSavedDirect != null) {
+          widget.onSavedDirect!(savedProd);
+        }
+
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
