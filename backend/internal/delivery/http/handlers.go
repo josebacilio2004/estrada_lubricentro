@@ -1433,12 +1433,12 @@ func (h *Handler) PushPosScan(c *fiber.Ctx) error {
 	var specs []byte
 	query := `
 		SELECT p.id, p.sku, COALESCE(p.barcode, ''), p.name, COALESCE(p.description, ''),
-		       p.category_id, p.brand_id, p.presentation, p.purchase_price, p.sale_price, 
+		       p.category_id, p.brand_id, COALESCE(p.presentation, 'Unidad'), p.purchase_price, p.sale_price, 
 		       p.stock_current, p.stock_min, COALESCE(p.image_url, ''), p.technical_specs, 
-		       b.name as brand_name, c.name as category_name
+		       COALESCE(b.name, 'Genérico') as brand_name, COALESCE(c.name, 'General') as category_name
 		FROM products p
-		JOIN brands b ON p.brand_id = b.id
-		JOIN categories c ON p.category_id = c.id
+		LEFT JOIN brands b ON p.brand_id = b.id
+		LEFT JOIN categories c ON p.category_id = c.id
 		WHERE p.is_active = true
 		  AND (p.barcode = $1 OR UPPER(p.sku) = UPPER($1) OR p.id::text = $1)
 		LIMIT 1`
@@ -1479,7 +1479,10 @@ func (h *Handler) PushPosScan(c *fiber.Ctx) error {
 }
 
 func (h *Handler) ConsumePosScanQueue(c *fiber.Ctx) error {
-	sessionID := c.Query("session_id", "MAIN")
+	sessionID := strings.TrimSpace(c.Query("session_id", "MAIN"))
+	if sessionID == "" {
+		sessionID = "MAIN"
+	}
 
 	query := `
 		WITH consumed_rows AS (
@@ -1487,7 +1490,8 @@ func (h *Handler) ConsumePosScanQueue(c *fiber.Ctx) error {
 			SET consumed = true
 			WHERE id IN (
 				SELECT id FROM pos_scan_queue
-				WHERE consumed = false AND ( = '' OR  = 'ALL' OR  = 'MAIN' OR session_id =  OR session_id = 'MAIN' OR session_id LIKE 'mobile%')$1
+				WHERE consumed = false
+				  AND ($1::text = '' OR $1::text = 'ALL' OR $1::text = 'MAIN' OR session_id = $1::text OR session_id = 'MAIN' OR session_id LIKE 'mobile%')
 				ORDER BY created_at ASC
 				LIMIT 20
 			)
@@ -1495,17 +1499,18 @@ func (h *Handler) ConsumePosScanQueue(c *fiber.Ctx) error {
 		)
 		SELECT cr.id, cr.quantity, cr.created_at,
 		       p.id, p.sku, COALESCE(p.barcode, ''), p.name, COALESCE(p.description, ''),
-		       p.category_id, p.brand_id, p.presentation, p.purchase_price, p.sale_price, 
+		       p.category_id, p.brand_id, COALESCE(p.presentation, 'Unidad'), p.purchase_price, p.sale_price, 
 		       p.stock_current, p.stock_min, COALESCE(p.image_url, ''), p.technical_specs, 
-		       b.name as brand_name, c.name as category_name
+		       COALESCE(b.name, 'Genérico') as brand_name, COALESCE(c.name, 'General') as category_name
 		FROM consumed_rows cr
 		JOIN products p ON cr.product_id = p.id
-		JOIN brands b ON p.brand_id = b.id
-		JOIN categories c ON p.category_id = c.id
+		LEFT JOIN brands b ON p.brand_id = b.id
+		LEFT JOIN categories c ON p.category_id = c.id
 		ORDER BY cr.created_at ASC`
 
 	rows, err := h.db.Query(c.Context(), query, sessionID)
 	if err != nil {
+		fmt.Printf("[ConsumePosScanQueue] SQL error: %v\n", err)
 		return response.JSON(c, fiber.StatusOK, []domain.PosScanEventItem{})
 	}
 	defer rows.Close()
@@ -1521,12 +1526,14 @@ func (h *Handler) ConsumePosScanQueue(c *fiber.Ctx) error {
 			&ev.Product.StockCurrent, &ev.Product.StockMin, &ev.Product.ImageURL, &specs,
 			&ev.Product.BrandName, &ev.Product.CategoryName,
 		)
-		if err == nil {
-			if len(specs) > 0 {
-				_ = json.Unmarshal(specs, &ev.Product.TechnicalSpecs)
-			}
-			events = append(events, ev)
+		if err != nil {
+			fmt.Printf("[ConsumePosScanQueue] Scan error: %v\n", err)
+			continue
 		}
+		if len(specs) > 0 {
+			_ = json.Unmarshal(specs, &ev.Product.TechnicalSpecs)
+		}
+		events = append(events, ev)
 	}
 
 	if events == nil {

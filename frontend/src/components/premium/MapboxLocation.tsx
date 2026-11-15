@@ -1,113 +1,153 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { MapPin, Navigation, Clock, Phone, ShieldCheck, ExternalLink, Compass } from "lucide-react";
+import {
+  MapPin,
+  Navigation,
+  Clock,
+  Phone,
+  ShieldCheck,
+  ExternalLink,
+  Compass,
+  Layers,
+  Plus,
+  Minus,
+} from "lucide-react";
 
 declare global {
   interface Window {
-    mapboxgl: any;
+    L: any;
   }
 }
 
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
-const LOCATION_COORDS: [number, number] = [-75.2309964, -12.0618501]; // Lng, Lat
+const LAT = -12.0618501;
+const LNG = -75.2309964;
 const GOOGLE_MAPS_URL = "https://maps.app.goo.gl/iwmLRK6GpFuhR6i3A";
+const GOOGLE_EMBED_URL = `https://maps.google.com/maps?q=${LAT},${LNG}+(Lubricentros+Estrada+S.A.C.)&t=m&z=17&output=embed&iwloc=near`;
 
 export function MapboxLocation() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [mapError, setMapError] = useState(false);
+  const markerRef = useRef<any>(null);
+  const [mapMode, setMapMode] = useState<"DARK_VECTOR" | "GOOGLE_EMBED">(
+    "DARK_VECTOR"
+  );
+  const [leafletReady, setLeafletReady] = useState(false);
 
   useEffect(() => {
-    // Inject Mapbox CSS if not present
-    const cssId = "mapbox-gl-css";
+    if (mapMode !== "DARK_VECTOR") return;
+
+    const cssId = "leaflet-css-cdn";
     if (!document.getElementById(cssId)) {
       const link = document.createElement("link");
       link.id = cssId;
       link.rel = "stylesheet";
-      link.href = "https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
       document.head.appendChild(link);
     }
 
-    // Load Mapbox GL JS script
-    const loadMapboxScript = () => {
-      if (window.mapboxgl) {
-        initMap();
-        return;
+    const initLeaflet = () => {
+      if (!mapContainerRef.current || !window.L) return;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
       }
-      const script = document.createElement("script");
-      script.src = "https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js";
-      script.async = true;
-      script.onload = () => initMap();
-      script.onerror = () => setMapError(true);
-      document.head.appendChild(script);
-    };
-
-    const initMap = () => {
-      if (!mapContainerRef.current || mapInstanceRef.current || !window.mapboxgl) return;
 
       try {
-        window.mapboxgl.accessToken = MAPBOX_TOKEN;
-
-        const map = new window.mapboxgl.Map({
-          container: mapContainerRef.current,
-          style: "mapbox://styles/mapbox/dark-v11",
-          center: LOCATION_COORDS,
-          zoom: 16.2,
-          pitch: 52, // 3D perspective pitch
-          bearing: -20,
-          antialias: true,
+        const L = window.L;
+        const map = L.map(mapContainerRef.current, {
+          center: [LAT, LNG],
+          zoom: 17,
+          zoomControl: false,
+          attributionControl: false,
         });
 
-        map.addControl(new window.mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
+        // CartoDB Dark Matter high-contrast automotive map tiles (zero API key required)
+        L.tileLayer(
+          "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+          {
+            subdomains: "abcd",
+            maxZoom: 20,
+          }
+        ).addTo(map);
 
-        // Custom Animated Glowing Marker Element
-        const el = document.createElement("div");
-        el.className = "estrada-map-marker";
-        el.style.width = "40px";
-        el.style.height = "40px";
-        el.style.cursor = "pointer";
-        el.innerHTML = `
-          <div style="position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
-            <div style="position:absolute; width:100%; height:100%; border-radius:50%; background:#F26A1B; opacity:0.4; animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
-            <div style="position:relative; width:28px; height:28px; border-radius:50%; background:#0A0A0B; border:2px solid #F26A1B; display:flex; align-items:center; justify-content:center; box-shadow:0 0 15px rgba(242,106,27,0.8);">
-              <span style="color:#F26A1B; font-weight:900; font-family:'Sora',sans-serif; font-size:12px;">E</span>
+        const customIcon = L.divIcon({
+          className: "estrada-custom-leaflet-pin",
+          iconSize: [48, 48],
+          iconAnchor: [24, 24],
+          popupAnchor: [0, -24],
+          html: `
+            <div style="position:relative; width:48px; height:48px; display:flex; align-items:center; justify-content:center;">
+              <div style="position:absolute; width:48px; height:48px; border-radius:50%; background:rgba(242,106,27,0.35); animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
+              <div style="position:relative; width:34px; height:34px; border-radius:50%; background:#0A0A0B; border:2.5px solid #F26A1B; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(242,106,27,0.9);">
+                <span style="color:#F26A1B; font-weight:900; font-family:'Sora',system-ui,sans-serif; font-size:14px;">E</span>
+              </div>
             </div>
+          `,
+        });
+
+        const popupHtml = `
+          <div style="padding:12px; background:#0A0A0B; color:#F5F5F5; font-family:'Inter',system-ui,sans-serif; border-radius:14px; border:1px solid rgba(242,106,27,0.45); box-shadow:0 16px 36px rgba(0,0,0,0.95); min-width:225px;">
+            <div style="display:flex; align-items:center; gap:7px; margin-bottom:5px;">
+              <span style="width:8px; height:8px; border-radius:50%; background:#F26A1B; display:inline-block;"></span>
+              <strong style="font-size:12px; letter-spacing:0.04em; color:#fff;">LUBRICENTROS ESTRADA S.A.C.</strong>
+            </div>
+            <p style="font-size:11px; color:#A3AFC7; margin:0 0 8px 0; line-height:1.35;">
+              Av. José Carlos Mariátegui, El Tambo — Huancayo (WQQ9+7JR)
+            </p>
+            <div style="margin-bottom:9px;">
+              <span style="display:inline-block; font-size:10px; font-weight:700; color:#10B981; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); padding:2px 7px; border-radius:999px;">
+                ● ABIERTO HOY • ATENCIÓN EXPRESS
+              </span>
+            </div>
+            <a href="${GOOGLE_MAPS_URL}" target="_blank" rel="noopener noreferrer" style="display:block; text-align:center; background:#F26A1B; color:#fff; text-decoration:none; font-size:11px; font-weight:700; padding:7px 12px; border-radius:999px;">
+              Abrir Ruta GPS en Google Maps →
+            </a>
           </div>
         `;
 
-        // Popup with Workshop details
-        const popup = new window.mapboxgl.Popup({ offset: 25, closeButton: false })
-          .setHTML(`
-            <div style="padding:10px; background:#0A0A0B; color:#F5F5F5; font-family:'Inter',sans-serif; border-radius:12px; border:1px solid rgba(255,255,255,0.15); box-shadow:0 15px 30px rgba(0,0,0,0.9); min-width:210px;">
-              <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
-                <span style="width:8px; height:8px; border-radius:50%; background:#F26A1B;"></span>
-                <strong style="font-family:'Sora',sans-serif; font-size:12px; letter-spacing:0.05em; color:#fff;">LUBRICENTROS ESTRADA</strong>
-              </div>
-              <p style="font-size:11px; color:#9A9A9F; margin:0 0 8px 0; line-height:1.3;">Av. Mariátegui, Huancayo (WQQ9+7JR)</p>
-              <span style="display:inline-block; font-size:10px; font-weight:bold; color:#10B981; background:rgba(16,185,129,0.15); padding:2px 6px; border-radius:4px; margin-bottom:8px;">ABIERTO HOY • ATENCIÓN EXPRESS</span>
-              <a href="${GOOGLE_MAPS_URL}" target="_blank" style="display:block; text-align:center; background:#F26A1B; color:#fff; text-decoration:none; font-size:11px; font-weight:600; padding:6px 10px; border-radius:8px;">Cómo Llegar →</a>
-            </div>
-          `);
+        const marker = L.marker([LAT, LNG], { icon: customIcon })
+          .addTo(map)
+          .bindPopup(popupHtml, {
+            closeButton: false,
+            className: "estrada-dark-popup",
+          });
 
-        new window.mapboxgl.Marker(el)
-          .setLngLat(LOCATION_COORDS)
-          .setPopup(popup)
-          .addTo(map);
-
-        map.on("load", () => {
-          setMapLoaded(true);
-        });
+        setTimeout(() => {
+          try {
+            map.invalidateSize();
+            marker.openPopup();
+          } catch {
+            // ignore
+          }
+        }, 250);
 
         mapInstanceRef.current = map;
-      } catch (err) {
-        console.error("Mapbox init error:", err);
-        setMapError(true);
+        markerRef.current = marker;
+        setLeafletReady(true);
+      } catch (e) {
+        console.warn("Fallback to Google Maps Embed:", e);
+        setMapMode("GOOGLE_EMBED");
       }
     };
 
-    loadMapboxScript();
+    if (window.L) {
+      initLeaflet();
+    } else {
+      const scriptId = "leaflet-js-cdn";
+      const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
+      if (existing) {
+        existing.addEventListener("load", initLeaflet);
+      } else {
+        const script = document.createElement("script");
+        script.id = scriptId;
+        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        script.async = true;
+        script.onload = () => initLeaflet();
+        script.onerror = () => setMapMode("GOOGLE_EMBED");
+        document.head.appendChild(script);
+      }
+    }
 
     return () => {
       if (mapInstanceRef.current) {
@@ -115,27 +155,52 @@ export function MapboxLocation() {
         mapInstanceRef.current = null;
       }
     };
-  }, []);
+  }, [mapMode]);
 
   const handleResetLocation = () => {
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo({
-        center: LOCATION_COORDS,
-        zoom: 16.5,
-        pitch: 55,
-        bearing: -20,
-        essential: true,
+    if (mapMode === "DARK_VECTOR" && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([LAT, LNG], 17, {
+        animate: true,
+        duration: 0.9,
       });
+      if (markerRef.current) {
+        markerRef.current.openPopup();
+      }
+    } else {
+      setMapMode("DARK_VECTOR");
+    }
+  };
+
+  const handleZoom = (delta: number) => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setZoom(mapInstanceRef.current.getZoom() + delta);
     }
   };
 
   return (
-    <section id="ubicacion" className="scroll-mt-20 relative w-full py-24 bg-ink-950 border-t border-white/[0.08] overflow-hidden">
+    <section
+      id="ubicacion"
+      className="scroll-mt-20 relative w-full py-24 bg-ink-950 border-t border-white/[0.08] overflow-hidden"
+    >
+      <style>{`
+        .estrada-dark-popup .leaflet-popup-content-wrapper {
+          background: transparent !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+        }
+        .estrada-dark-popup .leaflet-popup-content {
+          margin: 0 !important;
+        }
+        .estrada-dark-popup .leaflet-popup-tip {
+          background: #0A0A0B !important;
+          border: 1px solid rgba(242,106,27,0.45);
+        }
+      `}</style>
+
       {/* Background ambient lighting */}
       <div className="absolute left-1/4 top-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-ember-500/10 blur-[180px] pointer-events-none rounded-full" />
 
       <div className="max-w-[1400px] mx-auto px-6">
-        
         {/* Section Header */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-end mb-12">
           <div className="lg:col-span-8 space-y-4">
@@ -150,24 +215,43 @@ export function MapboxLocation() {
               </span>
             </h2>
             <p className="text-text-lo text-sm sm:text-base max-w-xl font-light leading-relaxed">
-              Infraestructura diseñada con fosas de cambio rápido, elevadores hidráulicos y estación de diagnosis electrónica en Huancayo.
+              Infraestructura diseñada con fosas de cambio rápido, elevadores
+              hidráulicos y estación de diagnosis electrónica en Huancayo.
             </p>
           </div>
 
-          <div className="lg:col-span-4 flex justify-start lg:justify-end gap-3">
+          <div className="lg:col-span-4 flex flex-wrap justify-start lg:justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={() =>
+                setMapMode((m) =>
+                  m === "DARK_VECTOR" ? "GOOGLE_EMBED" : "DARK_VECTOR"
+                )
+              }
+              className="inline-flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.12] text-white text-xs font-semibold px-4 py-3 rounded-full border border-white/10 transition-all active:scale-95"
+            >
+              <Layers className="w-4 h-4 text-amber-400" />
+              <span>
+                {mapMode === "DARK_VECTOR"
+                  ? "Vista Google Maps"
+                  : "Vista Nocturna 3D"}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={handleResetLocation}
-              className="inline-flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.12] text-white text-xs font-semibold px-5 py-3 rounded-full border border-white/10 transition-all active:scale-95"
+              className="inline-flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.12] text-white text-xs font-semibold px-4 py-3 rounded-full border border-white/10 transition-all active:scale-95"
             >
               <Compass className="w-4 h-4 text-ember-500" />
               <span>Centrar Taller</span>
             </button>
+
             <a
               href={GOOGLE_MAPS_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 bg-ember-500 hover:bg-ember-600 text-white text-xs font-semibold px-6 py-3 rounded-full transition-all shadow-lg shadow-ember-500/25 active:scale-95 group"
+              className="inline-flex items-center gap-2 bg-ember-500 hover:bg-ember-600 text-white text-xs font-semibold px-5 py-3 rounded-full transition-all shadow-lg shadow-ember-500/25 active:scale-95 group"
             >
               <span>Abrir en Google Maps</span>
               <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
@@ -177,28 +261,66 @@ export function MapboxLocation() {
 
         {/* Map Grid: Map Viewport + Info Panel */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-          
-          {/* Mapbox Canvas Container */}
-          <div className="lg:col-span-8 relative min-h-[420px] sm:min-h-[500px] rounded-3xl overflow-hidden border border-white/15 bg-ink-900 shadow-[0_20px_50px_rgba(0,0,0,0.8)] group">
-            <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
-            
+          {/* Interactive Map Viewport */}
+          <div className="lg:col-span-8 relative min-h-[430px] sm:min-h-[510px] rounded-3xl overflow-hidden border border-white/15 bg-[#0c1017] shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+            {mapMode === "DARK_VECTOR" ? (
+              <>
+                <div
+                  ref={mapContainerRef}
+                  className="absolute inset-0 w-full h-full z-0"
+                />
+                {!leafletReady ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[#0c1017] text-xs font-mono text-text-lo">
+                    Cargando cartografía interactiva de Huancayo…
+                  </div>
+                ) : null}
+
+                {/* Controles de Zoom Personalizados */}
+                <div className="absolute top-4 right-4 z-[400] flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleZoom(1)}
+                    aria-label="Acercar mapa"
+                    className="w-9 h-9 rounded-xl bg-ink-950/90 hover:bg-ember-500 text-white border border-white/15 flex items-center justify-center shadow-lg transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleZoom(-1)}
+                    aria-label="Alejar mapa"
+                    className="w-9 h-9 rounded-xl bg-ink-950/90 hover:bg-ember-500 text-white border border-white/15 flex items-center justify-center shadow-lg transition-colors"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <iframe
+                title="Ubicación Lubricentros Estrada S.A.C. Huancayo"
+                src={GOOGLE_EMBED_URL}
+                className="absolute inset-0 w-full h-full border-0"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            )}
+
             {/* Top Overlay HUD Badge */}
-            <div className="absolute top-4 left-4 z-10 flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-ink-950/85 backdrop-blur-md border border-white/15 text-[11px] font-mono text-white pointer-events-none">
+            <div className="absolute top-4 left-4 z-[400] flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-ink-950/90 backdrop-blur-md border border-white/15 text-[11px] font-mono text-white pointer-events-none shadow-lg">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>MAPBOX 3D • LAT: -12.0618° | LNG: -75.2310°</span>
+              <span>GPS ACTIVO • LAT: -12.0618° | LNG: -75.2310°</span>
             </div>
 
             {/* Bottom Overlay Coordinates */}
-            <div className="absolute bottom-4 left-4 z-10 hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-ink-950/85 backdrop-blur-md border border-white/10 text-xs font-mono text-text-lo pointer-events-none">
+            <div className="absolute bottom-4 left-4 z-[400] hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-ink-950/90 backdrop-blur-md border border-white/15 text-xs font-mono text-text-lo pointer-events-none shadow-lg">
               <MapPin className="w-3.5 h-3.5 text-ember-500" />
-              <span>Av. Mariátegui, Huancayo • Plus Code: WQQ9+7JR</span>
+              <span>Av. José Carlos Mariátegui, Huancayo • Plus Code: WQQ9+7JR</span>
             </div>
           </div>
 
           {/* Location Info Card */}
           <div className="lg:col-span-4 rounded-3xl bg-gradient-to-b from-white/[0.06] to-white/[0.02] border border-white/15 p-6 sm:p-8 flex flex-col justify-between backdrop-blur-xl shadow-xl">
             <div className="space-y-6">
-              
               <div className="space-y-2">
                 <span className="text-[10px] font-mono text-ember-400 tracking-wider uppercase font-semibold block">
                   PUNTO DE ATENCIÓN DIRECTA
@@ -207,7 +329,8 @@ export function MapboxLocation() {
                   Taller Central Estrada Huancayo
                 </h3>
                 <p className="text-xs text-text-lo leading-relaxed">
-                  Acceso vehicular directo por Av. Mariátegui. Bahías techadas con altura para camionetas y flotas comerciales.
+                  Acceso vehicular directo por Av. Mariátegui. Bahías techadas
+                  con altura para camionetas y flotas comerciales.
                 </p>
               </div>
 
@@ -220,11 +343,15 @@ export function MapboxLocation() {
                 <div className="space-y-1 font-mono text-[11px] text-text-lo">
                   <div className="flex justify-between">
                     <span>Lunes a Sábado:</span>
-                    <span className="text-white font-medium">8:00 AM – 7:00 PM</span>
+                    <span className="text-white font-medium">
+                      8:00 AM – 7:00 PM
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Domingos y Feriados:</span>
-                    <span className="text-white font-medium">8:30 AM – 2:00 PM</span>
+                    <span className="text-white font-medium">
+                      8:30 AM – 2:00 PM
+                    </span>
                   </div>
                 </div>
               </div>
@@ -241,10 +368,11 @@ export function MapboxLocation() {
                 </div>
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-ember-500" />
-                  <span>Sala de espera con Wi-Fi y monitoreo de servicio</span>
+                  <span>
+                    Sala de espera con Wi-Fi y monitoreo de servicio
+                  </span>
                 </div>
               </div>
-
             </div>
 
             {/* Bottom Actions */}
@@ -268,11 +396,8 @@ export function MapboxLocation() {
                 Consultar Disponibilidad de Bahía
               </a>
             </div>
-
           </div>
-
         </div>
-
       </div>
     </section>
   );

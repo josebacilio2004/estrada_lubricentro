@@ -13,7 +13,8 @@ import {
   Users,
   Calendar,
   ArrowUpRight,
-  Sparkles,
+  Smartphone,
+  BarChart3,
 } from "lucide-react";
 import {
   AreaChart,
@@ -26,8 +27,29 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import {
+  FilaMetricas,
+  Metrica,
+  ChipVariacion,
+  AyudaMetrica,
+  CabeceraSeccion,
+  PieSeccion,
+  TARJETA,
+  CONTENEDOR_TABLA,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  ChipCodigo,
+  Chip,
+  PillEstado,
+  PieTablaSimple,
+  ACCION_SECUNDARIA,
+  cn,
+} from "@/components/khipu/khipu-ui";
 
-// Datos de facturación mensual para Recharts
 const DAILY_SALES_DATA = [
   { day: "01 Nov", facturado: 1850, comprobantes: 12 },
   { day: "02 Nov", facturado: 2400, comprobantes: 15 },
@@ -51,11 +73,11 @@ const BRAND_DISTRIBUTION = [
 ];
 
 const RECENT_INVOICES = [
-  { fullNumber: "B001-0000412", client: "Carlos Mendoza Alarcón", plate: "ABC-123", amount: 235.0, status: "ACEPTADO", time: "Hace 12 min" },
-  { fullNumber: "F001-0000189", client: "Transportes Huancayo SAC", plate: "BCX-456", amount: 720.0, status: "ACEPTADO", time: "Hace 34 min" },
-  { fullNumber: "B001-0000411", client: "Vanessa Torres Rivas", plate: "W1A-982", amount: 165.0, status: "ACEPTADO", time: "Hace 1 hora" },
-  { fullNumber: "B001-0000410", client: "Renzo Estrada Poma", plate: "ABC-777", amount: 185.0, status: "PENDIENTE", time: "Hace 2 horas" },
-  { fullNumber: "B001-0000409", client: "Jorge Luis Gómez", plate: "A9B-441", amount: 145.0, status: "ACEPTADO", time: "Hace 3 horas" },
+  { fullNumber: "B001-00000412", client: "Carlos Mendoza Alarcón", plate: "ABC-123", amount: 235.0, status: "ACEPTADO", time: "Hace 12 min" },
+  { fullNumber: "F001-00000189", client: "Transportes Huancayo S.A.C.", plate: "BCX-456", amount: 720.0, status: "ACEPTADO", time: "Hace 34 min" },
+  { fullNumber: "B001-00000411", client: "Vanessa Torres Rivas", plate: "W1A-982", amount: 165.0, status: "ACEPTADO", time: "Hace 1 hora" },
+  { fullNumber: "B001-00000410", client: "Renzo Estrada Poma", plate: "ABC-777", amount: 185.0, status: "PENDIENTE", time: "Hace 2 horas" },
+  { fullNumber: "B001-00000409", client: "Jorge Luis Gómez", plate: "A9B-441", amount: 145.0, status: "ACEPTADO", time: "Hace 3 horas" },
 ];
 
 export default function AdminDashboardPage() {
@@ -74,294 +96,434 @@ export default function AdminDashboardPage() {
       .catch((err) => console.warn("Fallback analytics", err));
   }, []);
 
-  const totalFacturado = metrics?.total_month_sales ? Number(metrics.total_month_sales) : 28450.0;
-  const emitidosCount = metrics?.total_month_count ? Number(metrics.total_month_count) : 164;
-  const aceptadosCount = metrics?.accepted_sunat_count ? Number(metrics.accepted_sunat_count) : 161;
-  const atencionCount = metrics?.low_stock_count !== undefined ? Number(metrics.low_stock_count) : 3;
-  const chartData = (metrics?.daily_sales_chart && metrics.daily_sales_chart.length > 0)
-    ? metrics.daily_sales_chart.map((d: any) => ({
-        day: d.date,
-        facturado: Number(d.amount),
-        comprobantes: Number(d.count),
-      }))
-    : DAILY_SALES_DATA;
+  const totalFacturado = metrics?.total_month_sales
+    ? Number(metrics.total_month_sales)
+    : 28450.0;
+  const emitidosCount = metrics?.total_month_count
+    ? Number(metrics.total_month_count)
+    : 164;
+  const aceptadosCount = metrics?.accepted_sunat_count
+    ? Number(metrics.accepted_sunat_count)
+    : 161;
+  const atencionCount =
+    metrics?.low_stock_count !== undefined
+      ? Number(metrics.low_stock_count)
+      : 3;
+
+  const conformidadPct =
+    emitidosCount > 0 ? (aceptadosCount / emitidosCount) * 100 : 100;
+
+  const chartData =
+    metrics?.daily_sales_chart && metrics.daily_sales_chart.length > 0
+      ? metrics.daily_sales_chart.map((d: any) => ({
+          day: d.date,
+          facturado: Number(d.amount),
+          comprobantes: Number(d.count),
+        }))
+      : DAILY_SALES_DATA;
 
   return (
     <ErpLayout
-      categoryTitle="Panel"
-      title="Inicio / Dashboard"
+      categoryTitle="General"
+      title="Resumen y Analítica"
       actionButton={{
-        label: "Nueva Venta / POS",
+        label: "Emitir en Terminal POS",
         href: "/admin/pos",
       }}
     >
-      <div className="space-y-8">
-        
-        {/* 1. TOP 4 METRIC CARDS (Exact styling from reference screenshot) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          
-          {/* Card 1: Total Facturado */}
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5 flex flex-col justify-between">
-            <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
-              <Receipt className="w-4 h-4 text-gray-400" />
-              <span>Total facturado</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-white">
-                S/ {totalFacturado.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Neto de comprobantes • <span className="text-emerald-400 font-medium">Actualizado</span> este mes
-              </div>
-            </div>
+      {/* 1. FILA DE MÉTRICAS KHIPU (src/components/patrones/metricas.tsx) */}
+      <FilaMetricas columnas={4}>
+        <Metrica
+          etiqueta="Total facturado"
+          icono={Receipt}
+          tono="acento"
+          destacada
+          acciones={<ChipVariacion variacion={14.2} destacada />}
+          visual={{ tipo: "barra", valor: 82 }}
+          ayuda="Neto de comprobantes · Actualizado hoy"
+        >
+          S/{" "}
+          {totalFacturado.toLocaleString("es-PE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </Metrica>
+
+        <Metrica
+          etiqueta="Emitidos en el período"
+          icono={Calendar}
+          tono="neutro"
+          sufijo="CPEs"
+          acciones={<ChipVariacion variacion={8.4} />}
+          visual={{ tipo: "puntos", total: 10, marcados: 8 }}
+          ayuda={
+            <AyudaMetrica tono="neutro">
+              Facturas F001 y Boletas B001 registradas
+            </AyudaMetrica>
+          }
+        >
+          {emitidosCount}
+        </Metrica>
+
+        <Metrica
+          etiqueta="Aceptados con CDR"
+          icono={CheckCircle2}
+          tono="ok"
+          sufijo={`(${conformidadPct.toFixed(1)}%)`}
+          visual={{ tipo: "barra", valor: conformidadPct }}
+          ayuda={
+            <AyudaMetrica tono="ok">
+              Conformidad electrónica SUNAT UBL 2.1
+            </AyudaMetrica>
+          }
+        >
+          {aceptadosCount}
+        </Metrica>
+
+        <Metrica
+          etiqueta="Atención requerida"
+          icono={AlertCircle}
+          tono={atencionCount > 0 ? "aviso" : "ok"}
+          sufijo="SKUs"
+          visual={{
+            tipo: "puntos",
+            total: 8,
+            marcados: Math.min(8, atencionCount),
+          }}
+          ayuda={
+            <AyudaMetrica tono={atencionCount > 0 ? "aviso" : "ok"}>
+              Alertas de reposición mínima en almacén
+            </AyudaMetrica>
+          }
+        >
+          {atencionCount}
+        </Metrica>
+      </FilaMetricas>
+
+      {/* 2. SECCIÓN ANALÍTICA KHIPU (CabeceraSeccion + PieSeccion) */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+        {/* Gráfico de Área Principal */}
+        <div className={cn(TARJETA, "lg:col-span-8 flex flex-col justify-between")}>
+          <CabeceraSeccion
+            icon={TrendingUp}
+            titulo="Flujo de Facturación Diaria (PEN)"
+            subtitulo="Ingresos por cambios de aceite, filtros y venta en mostrador"
+            derecha={<Chip>Noviembre 2026</Chip>}
+          />
+
+          <div className="h-[260px] w-full px-3 pt-2">
+            {mounted ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="khipuGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#d4f06b" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#d4f06b" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(163, 175, 199, 0.12)"
+                  />
+                  <XAxis
+                    dataKey="day"
+                    stroke="#8794ad"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="#8794ad"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(val) => `S/${val}`}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "var(--popover)",
+                      borderColor: "var(--border)",
+                      borderRadius: "12px",
+                      fontSize: "12px",
+                      color: "var(--foreground)",
+                    }}
+                    formatter={(val: any) => [
+                      `S/ ${Number(val).toLocaleString("es-PE", {
+                        minimumFractionDigits: 2,
+                      })}`,
+                      "Facturado",
+                    ]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="facturado"
+                    stroke="#d4f06b"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#khipuGrad)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : null}
           </div>
 
-          {/* Card 2: Emitidos en el período */}
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5 flex flex-col justify-between">
-            <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              <span>Emitidos en el período</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-white">
-                {emitidosCount}
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Total comprobantes registrados
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Aceptados con CDR */}
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5 flex flex-col justify-between">
-            <div className="flex items-center gap-2 text-xs text-emerald-400 font-mono">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>Aceptados con CDR</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-emerald-400">
-                {aceptadosCount}
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Conformidad SUNAT {emitidosCount > 0 ? ((aceptadosCount / emitidosCount) * 100).toFixed(1) : 100}%
-              </div>
-            </div>
-          </div>
-
-          {/* Card 4: Atención requerida */}
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5 flex flex-col justify-between">
-            <div className="flex items-center gap-2 text-xs text-amber-400 font-mono">
-              <AlertCircle className="w-4 h-4 text-amber-400" />
-              <span>Atención requerida</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-amber-400">
-                {atencionCount}
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Alertas de stock bajo en lubricantes
-              </div>
-            </div>
-          </div>
-
+          <PieSeccion>
+            <span>Moneda: Soles (PEN)</span>
+            <span>·</span>
+            <span>Incluye IGV 18%</span>
+            <span>·</span>
+            <span>Sede: Av. José Carlos Mariátegui — El Tambo, Huancayo</span>
+          </PieSeccion>
         </div>
 
-        {/* 2. RECHARTS ANALYTICS SECTION */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
-          {/* Main Area Chart: Evolución de Facturación Diaria */}
-          <div className="lg:col-span-8 rounded-2xl bg-[#151820] border border-white/[0.06] p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-sm font-semibold text-white">
-                  Flujo de Facturación y Ventas (S/.)
-                </h3>
-                <p className="text-xs text-gray-400">
-                  Ingresos diarios por cambios de lubricante y venta en mostrador
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-mono">
-                <span className="px-2.5 py-1 rounded-lg bg-white/[0.06] text-white">Noviembre 2026</span>
-              </div>
-            </div>
+        {/* Gráfico de Barras por Marca */}
+        <div className={cn(TARJETA, "lg:col-span-4 flex flex-col justify-between")}>
+          <CabeceraSeccion
+            icon={BarChart3}
+            titulo="Rotación por Marca"
+            subtitulo="Participación en ventas de lubricantes y filtros"
+          />
 
-            <div className="h-[280px] w-full">
-              {mounted && (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorFacturado" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f26a1b" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#f26a1b" stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#222630" />
-                    <XAxis dataKey="day" stroke="#6b7280" fontSize={11} tickLine={false} />
-                    <YAxis stroke="#6b7280" fontSize={11} tickLine={false} tickFormatter={(val) => `S/${val}`} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: "#1c2029", borderColor: "rgba(255,255,255,0.1)", borderRadius: "12px", fontSize: "12px" }}
-                      formatter={(val: any) => [`S/ ${val.toLocaleString()}`, "Venta Total"]}
-                    />
-                    <Area type="monotone" dataKey="facturado" stroke="#f26a1b" strokeWidth={2.5} fillOpacity={1} fill="url(#colorFacturado)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+          <div className="h-[260px] w-full px-3 pt-2">
+            {mounted ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={BRAND_DISTRIBUTION} layout="vertical">
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(163, 175, 199, 0.12)"
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    stroke="#8794ad"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(val) => `S/${val / 1000}k`}
+                  />
+                  <YAxis
+                    dataKey="brand"
+                    type="category"
+                    stroke="#a3afc7"
+                    fontSize={11.5}
+                    tickLine={false}
+                    axisLine={false}
+                    width={78}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "var(--popover)",
+                      borderColor: "var(--border)",
+                      borderRadius: "12px",
+                      fontSize: "12px",
+                      color: "var(--foreground)",
+                    }}
+                    formatter={(val: any) => [
+                      `S/ ${Number(val).toLocaleString("es-PE")}`,
+                      "Ventas",
+                    ]}
+                  />
+                  <Bar dataKey="ventas" fill="#8fc0f7" radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : null}
           </div>
 
-          {/* Bar Chart: Ventas por Marca de Lubricante */}
-          <div className="lg:col-span-4 rounded-2xl bg-[#151820] border border-white/[0.06] p-6">
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-white">
-                Ventas por Marca / Línea
-              </h3>
-              <p className="text-xs text-gray-400">
-                Rotación de inventario en el período
-              </p>
-            </div>
-
-            <div className="h-[280px] w-full">
-              {mounted && (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={BRAND_DISTRIBUTION} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#222630" horizontal={false} />
-                    <XAxis type="number" stroke="#6b7280" fontSize={10} tickFormatter={(val) => `S/${val/1000}k`} />
-                    <YAxis dataKey="brand" type="category" stroke="#8b949e" fontSize={11} tickLine={false} width={80} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: "#1c2029", borderColor: "rgba(255,255,255,0.1)", borderRadius: "12px", fontSize: "12px" }}
-                      formatter={(val: any) => [`S/ ${val.toLocaleString()}`, "Total"]}
-                    />
-                    <Bar dataKey="ventas" fill="#10b981" radius={[0, 6, 6, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-
+          <PieSeccion>
+            <span>Top 1: Mobil 1 Full Synthetic</span>
+            <span>·</span>
+            <span>256 envases despachados</span>
+          </PieSeccion>
         </div>
+      </div>
 
-        {/* 3. RECENT ACTIVITY & DIRECT SHORTCUTS */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
-          {/* Ultimos Comprobantes */}
-          <div className="lg:col-span-8 rounded-2xl bg-[#151820] border border-white/[0.06] p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-white">
-                Últimos Comprobantes Emitidos
-              </h3>
-              <Link href="/admin/invoices" className="text-xs font-mono text-emerald-400 hover:underline">
-                Ver todos los comprobantes →
+      {/* 3. TABLA KHIPU DE ÚLTIMOS COMPROBANTES + ACCESOS RÁPIDOS */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+        {/* Tabla en Banda Redondeada Khipu */}
+        <div className={cn(CONTENEDOR_TABLA, "lg:col-span-8")}>
+          <CabeceraSeccion
+            icon={Receipt}
+            titulo="Últimos comprobantes emitidos"
+            subtitulo="Transmisión en línea al PSE / OSE SUNAT"
+            derecha={
+              <Link href="/admin/invoices" className={ACCION_SECUNDARIA}>
+                <span>Ver listado completo</span>
+                <ArrowUpRight className="h-3.5 w-3.5" />
               </Link>
-            </div>
+            }
+          />
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-white/[0.06] text-gray-500 uppercase">
-                    <th className="py-2.5">Comprobante</th>
-                    <th className="py-2.5">Cliente / Placa</th>
-                    <th className="py-2.5">Importe</th>
-                    <th className="py-2.5">Estado SUNAT</th>
-                    <th className="py-2.5">Tiempo</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.04]">
-                  {RECENT_INVOICES.map((inv) => (
-                    <tr key={inv.fullNumber} className="hover:bg-white/[0.02]">
-                      <td className="py-3 font-bold text-white">{inv.fullNumber}</td>
-                      <td className="py-3">
-                        <span className="text-gray-200 block font-sans">{inv.client}</span>
-                        <span className="text-[10px] text-gray-500">{inv.plate}</span>
-                      </td>
-                      <td className="py-3 text-white font-semibold">S/ {inv.amount.toFixed(2)}</td>
-                      <td className="py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            inv.status === "ACEPTADO"
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                          }`}
-                        >
-                          {inv.status}
-                        </span>
-                      </td>
-                      <td className="py-3 text-gray-500 text-[11px]">{inv.time}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Correlativo</TableHead>
+                <TableHead>Cliente / Razón Social</TableHead>
+                <TableHead>Placa</TableHead>
+                <TableHead className="text-right">Importe</TableHead>
+                <TableHead>Estado CDR</TableHead>
+                <TableHead className="text-right">Emisión</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {RECENT_INVOICES.map((inv) => (
+                <TableRow key={inv.fullNumber}>
+                  <TableCell>
+                    <ChipCodigo>{inv.fullNumber}</ChipCodigo>
+                  </TableCell>
+                  <TableCell className="font-medium text-foreground">
+                    {inv.client}
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-etiqueta text-muted-foreground">
+                      {inv.plate}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums text-foreground">
+                    S/ {inv.amount.toFixed(2)}
+                  </TableCell>
+                  <TableCell>
+                    <PillEstado
+                      tono={inv.status === "ACEPTADO" ? "ok" : "aviso"}
+                    >
+                      {inv.status === "ACEPTADO"
+                        ? "Aceptado"
+                        : "En proceso"}
+                    </PillEstado>
+                  </TableCell>
+                  <TableCell className="text-right text-etiqueta text-texto-terciario tabular-nums">
+                    {inv.time}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
 
-          {/* Quick Access Tiles */}
-          <div className="lg:col-span-4 space-y-3">
-            <h3 className="text-xs font-mono text-gray-400 uppercase tracking-wider">
-              Accesos Rápidos del Administrador
-            </h3>
-
-            <Link
-              href="/admin/pos"
-              className="p-4 rounded-xl bg-[#151820] border border-white/[0.06] hover:border-ember-500/50 flex items-center justify-between transition-all group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-ember-500/10 text-ember-400">
-                  <Store className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-white group-hover:text-ember-400 transition-colors">
-                    Terminal POS
-                  </div>
-                  <div className="text-[11px] text-gray-400">
-                    Cobro ágil y lector de placas
-                  </div>
-                </div>
-              </div>
-              <ArrowUpRight className="w-4 h-4 text-gray-500 group-hover:text-white" />
-            </Link>
-
-            <Link
-              href="/admin/products"
-              className="p-4 rounded-xl bg-[#151820] border border-white/[0.06] hover:border-emerald-500/50 flex items-center justify-between transition-all group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-400">
-                  <Package className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-white group-hover:text-emerald-400 transition-colors">
-                    Catálogo de Productos
-                  </div>
-                  <div className="text-[11px] text-gray-400">
-                    Cargar, editar precios y stock
-                  </div>
-                </div>
-              </div>
-              <ArrowUpRight className="w-4 h-4 text-gray-500 group-hover:text-white" />
-            </Link>
-
-            <Link
-              href="/admin/crm"
-              className="p-4 rounded-xl bg-[#151820] border border-white/[0.06] hover:border-cyan-500/50 flex items-center justify-between transition-all group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-cyan-500/10 text-cyan-400">
-                  <Users className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-white group-hover:text-cyan-400 transition-colors">
-                    Clientes & CRM
-                  </div>
-                  <div className="text-[11px] text-gray-400">
-                    Placas y recordatorios WhatsApp
-                  </div>
-                </div>
-              </div>
-              <ArrowUpRight className="w-4 h-4 text-gray-500 group-hover:text-white" />
-            </Link>
-          </div>
-
+          <PieTablaSimple
+            mostrando={RECENT_INVOICES.length}
+            total={emitidosCount}
+            unidad="comprobantes"
+            nota="RUC 20608945123 · Lubricentros Estrada S.A.C."
+          />
         </div>
 
+        {/* Módulos Operativos Directos */}
+        <div className="lg:col-span-4 flex flex-col gap-2.5">
+          <Link
+            href="/admin/pos"
+            className={cn(
+              TARJETA,
+              "group flex items-center justify-between p-3.5 transition-all hover:bg-secondary/60"
+            )}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-acento-suave text-acento-texto dark:text-acento">
+                <Store className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-titulo text-foreground">
+                  Terminal POS & Pistola Móvil
+                </div>
+                <div className="truncate text-etiqueta text-muted-foreground">
+                  Recepción automática de escaneos y ficha vehicular
+                </div>
+              </div>
+            </div>
+            <ArrowUpRight className="h-4 w-4 shrink-0 text-texto-terciario transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground" />
+          </Link>
+
+          <Link
+            href="/admin/products"
+            className={cn(
+              TARJETA,
+              "group flex items-center justify-between p-3.5 transition-all hover:bg-secondary/60"
+            )}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-info text-info-foreground">
+                <Package className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-titulo text-foreground">
+                  Catálogo de Lubricantes y Filtros
+                </div>
+                <div className="truncate text-etiqueta text-muted-foreground">
+                  Gestión de SKUs, códigos EAN-13, precios y fotos
+                </div>
+              </div>
+            </div>
+            <ArrowUpRight className="h-4 w-4 shrink-0 text-texto-terciario transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground" />
+          </Link>
+
+          <Link
+            href="/admin/inventory"
+            className={cn(
+              TARJETA,
+              "group flex items-center justify-between p-3.5 transition-all hover:bg-secondary/60"
+            )}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-warning text-warning-foreground">
+                <AlertCircle className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-titulo text-foreground">
+                  Kardex y Alertas de Stock
+                </div>
+                <div className="truncate text-etiqueta text-muted-foreground">
+                  Ajustes de entrada/salida sincronizados con App Android
+                </div>
+              </div>
+            </div>
+            <ArrowUpRight className="h-4 w-4 shrink-0 text-texto-terciario transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground" />
+          </Link>
+
+          <Link
+            href="/admin/crm"
+            className={cn(
+              TARJETA,
+              "group flex items-center justify-between p-3.5 transition-all hover:bg-secondary/60"
+            )}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-success text-success-foreground">
+                <Users className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-titulo text-foreground">
+                  Historial Vehicular & CRM
+                </div>
+                <div className="truncate text-etiqueta text-muted-foreground">
+                  Búsqueda por placa, kilometraje y próximo cambio
+                </div>
+              </div>
+            </div>
+            <ArrowUpRight className="h-4 w-4 shrink-0 text-texto-terciario transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-foreground" />
+          </Link>
+
+          <a
+            href="/estrada_erp_mobile.apk"
+            download
+            className={cn(
+              TARJETA,
+              "group flex items-center justify-between p-3.5 border-acento-borde bg-acento-suave/60 transition-all hover:bg-acento-suave"
+            )}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-acento text-acento-texto">
+                <Smartphone className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-titulo text-foreground">
+                  Descargar App Móvil Estrada v1.2.1
+                </div>
+                <div className="truncate text-etiqueta text-muted-foreground">
+                  Escáner láser HD 1080p para Inventario y POS
+                </div>
+              </div>
+            </div>
+            <ChipCodigo>APK</ChipCodigo>
+          </a>
+        </div>
       </div>
     </ErpLayout>
   );

@@ -7,17 +7,34 @@ import {
   CheckCircle2,
   AlertCircle,
   Calendar,
-  Search,
   Download,
   FileSpreadsheet,
   RotateCw,
-  Eye,
   FileText,
   Printer,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
 } from "lucide-react";
+import {
+  FilaMetricas,
+  Metrica,
+  AyudaMetrica,
+  ChipVariacion,
+  CONTENEDOR_TABLA,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  FilaVacia,
+  ChipCodigo,
+  Chip,
+  PillEstado,
+  PieTablaSimple,
+  SegmentadoControl,
+  BuscadorKhipu,
+  CONTROL_FILTRO,
+  ACCION_SECUNDARIA,
+} from "@/components/khipu/khipu-ui";
 
 interface InvoiceItem {
   id: string;
@@ -35,84 +52,84 @@ interface InvoiceItem {
 const SAMPLE_INVOICES: InvoiceItem[] = [
   {
     id: "1",
-    fullNumber: "B001-0000412",
+    fullNumber: "B001-00000412",
     docType: "BOLETA",
     clientName: "Carlos Mendoza Alarcón",
     clientDoc: "10458923",
     plate: "ABC-123",
-    issueDate: "2026-11-03 18:42",
+    issueDate: "15 nov 2026, 18:42",
     amount: 235.0,
     sunatStatus: "ACEPTADO",
     cdrCode: "0 - Aceptado con CDR por SUNAT",
   },
   {
     id: "2",
-    fullNumber: "F001-0000189",
+    fullNumber: "F001-00000189",
     docType: "FACTURA",
-    clientName: "Transportes Huancayo SAC",
+    clientName: "Transportes Huancayo S.A.C.",
     clientDoc: "20608912345",
     plate: "BCX-456",
-    issueDate: "2026-11-03 17:15",
+    issueDate: "15 nov 2026, 17:15",
     amount: 720.0,
     sunatStatus: "ACEPTADO",
     cdrCode: "0 - Aceptado con CDR por SUNAT",
   },
   {
     id: "3",
-    fullNumber: "B001-0000411",
+    fullNumber: "B001-00000411",
     docType: "BOLETA",
     clientName: "Vanessa Torres Rivas",
     clientDoc: "45891230",
     plate: "W1A-982",
-    issueDate: "2026-11-03 15:30",
+    issueDate: "15 nov 2026, 15:30",
     amount: 165.0,
     sunatStatus: "ACEPTADO",
     cdrCode: "0 - Aceptado con CDR por SUNAT",
   },
   {
     id: "4",
-    fullNumber: "B001-0000410",
+    fullNumber: "B001-00000410",
     docType: "BOLETA",
     clientName: "Renzo Estrada Poma",
     clientDoc: "72194850",
     plate: "ABC-777",
-    issueDate: "2026-11-03 14:10",
+    issueDate: "15 nov 2026, 14:10",
     amount: 185.0,
     sunatStatus: "PENDIENTE",
     cdrCode: "En cola de sincronización OSE",
   },
   {
     id: "5",
-    fullNumber: "B001-0000409",
+    fullNumber: "B001-00000409",
     docType: "BOLETA",
     clientName: "Jorge Luis Gómez",
     clientDoc: "41982341",
     plate: "A9B-441",
-    issueDate: "2026-11-03 11:20",
+    issueDate: "15 nov 2026, 11:20",
     amount: 145.0,
     sunatStatus: "ACEPTADO",
     cdrCode: "0 - Aceptado con CDR por SUNAT",
   },
   {
     id: "6",
-    fullNumber: "F001-0000188",
+    fullNumber: "F001-00000188",
     docType: "FACTURA",
-    clientName: "Inversiones Centro Minero EIRL",
+    clientName: "Inversiones Centro Minero E.I.R.L.",
     clientDoc: "20489123891",
     plate: "B7V-882",
-    issueDate: "2026-11-02 16:50",
+    issueDate: "14 nov 2026, 16:50",
     amount: 890.0,
     sunatStatus: "ACEPTADO",
     cdrCode: "0 - Aceptado con CDR por SUNAT",
   },
   {
     id: "7",
-    fullNumber: "B001-0000408",
+    fullNumber: "B001-00000408",
     docType: "BOLETA",
     clientName: "María Fernández Quispe",
     clientDoc: "47812904",
     plate: "C1A-202",
-    issueDate: "2026-11-02 14:15",
+    issueDate: "14 nov 2026, 14:15",
     amount: 110.0,
     sunatStatus: "ACEPTADO",
     cdrCode: "0 - Aceptado con CDR por SUNAT",
@@ -122,11 +139,11 @@ const SAMPLE_INVOICES: InvoiceItem[] = [
 export default function InvoicesAdminPage() {
   const [invoices, setInvoices] = useState<InvoiceItem[]>(SAMPLE_INVOICES);
   const [filterStatus, setFilterStatus] = useState("TODOS");
-  const [filterType, setFilterType] = useState("TODOS");
+  const [filterType, setFilterType] = useState<"TODOS" | "FACTURA" | "BOLETA">("TODOS");
   const [filterSeries, setFilterSeries] = useState("TODAS");
   const [searchTerm, setSearchTerm] = useState("");
 
-  useEffect(() => {
+  const loadInvoices = () => {
     fetch("/v1/sales")
       .then((res) => res.json())
       .then((data) => {
@@ -140,25 +157,35 @@ export default function InvoicesAdminPage() {
             plate: s.license_plate || "PARTICULAR",
             issueDate: new Date(s.issue_date).toLocaleString("es-PE", {
               year: "numeric",
-              month: "2-digit",
+              month: "short",
               day: "2-digit",
               hour: "2-digit",
               minute: "2-digit",
             }),
             amount: Number(s.total_amount),
-            sunatStatus: s.sunat_status === "ACCEPTED" ? "ACEPTADO" : "PENDIENTE",
-            cdrCode: s.sunat_status === "ACCEPTED" ? "0 - Aceptado con CDR por SUNAT" : "En cola de sincronización OSE",
+            sunatStatus:
+              s.sunat_status === "ACCEPTED" ? "ACEPTADO" : "PENDIENTE",
+            cdrCode:
+              s.sunat_status === "ACCEPTED"
+                ? "0 - Aceptado con CDR por SUNAT"
+                : "En cola de sincronización OSE",
           }));
           setInvoices(mapped);
         }
       })
       .catch((e) => console.warn("Fallback invoices", e));
+  };
+
+  useEffect(() => {
+    loadInvoices();
   }, []);
 
   const filtered = invoices.filter((inv) => {
-    if (filterStatus !== "TODOS" && inv.sunatStatus !== filterStatus) return false;
+    if (filterStatus !== "TODOS" && inv.sunatStatus !== filterStatus)
+      return false;
     if (filterType !== "TODOS" && inv.docType !== filterType) return false;
-    if (filterSeries !== "TODAS" && !inv.fullNumber.startsWith(filterSeries)) return false;
+    if (filterSeries !== "TODAS" && !inv.fullNumber.startsWith(filterSeries))
+      return false;
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       return (
@@ -171,280 +198,264 @@ export default function InvoicesAdminPage() {
     return true;
   });
 
+  const totalMonto = invoices.reduce((acc, i) => acc + i.amount, 0);
+  const aceptadosCount = invoices.filter(
+    (i) => i.sunatStatus === "ACEPTADO"
+  ).length;
+  const pendientesCount = invoices.filter(
+    (i) => i.sunatStatus !== "ACEPTADO"
+  ).length;
+
   return (
     <ErpLayout
-      categoryTitle="Facturación"
+      categoryTitle="Emisión y SUNAT"
       title="Comprobantes"
       actionButton={{
-        label: "Nuevo Comprobante",
+        label: "Emitir comprobante",
         href: "/admin/pos",
       }}
     >
-      <div className="space-y-6">
-        
-        {/* 1. TOP 4 METRIC CARDS (Exact match to screenshot) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5">
-            <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
-              <Receipt className="w-4 h-4 text-gray-400" />
-              <span>Total facturado</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-white">
-                S/ 28,450.00
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Neto de notas de crédito • Este mes
-              </div>
-            </div>
-          </div>
+      {/* 1. FILA DE MÉTRICAS KHIPU */}
+      <FilaMetricas columnas={4}>
+        <Metrica
+          etiqueta="Total facturado"
+          icono={Receipt}
+          tono="acento"
+          destacada
+          acciones={<ChipVariacion variacion={14.2} destacada />}
+          ayuda="Neto de notas de crédito · Período actual"
+        >
+          S/{" "}
+          {Math.max(28450, totalMonto).toLocaleString("es-PE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </Metrica>
 
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5">
-            <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              <span>Emitidos en el período</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-white">
-                164
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Este mes
-              </div>
-            </div>
-          </div>
+        <Metrica
+          etiqueta="Emitidos en el período"
+          icono={Calendar}
+          tono="neutro"
+          sufijo="CPEs"
+          ayuda={
+            <AyudaMetrica tono="neutro">
+              Series electrónicas F001 y B001
+            </AyudaMetrica>
+          }
+        >
+          {Math.max(164, invoices.length)}
+        </Metrica>
 
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5">
-            <div className="flex items-center gap-2 text-xs text-emerald-400 font-mono">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>Aceptados con CDR</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-emerald-400">
-                161
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Conformidad SUNAT
-              </div>
-            </div>
-          </div>
+        <Metrica
+          etiqueta="Aceptados con CDR"
+          icono={CheckCircle2}
+          tono="ok"
+          visual={{ tipo: "barra", valor: 98.2 }}
+          ayuda={
+            <AyudaMetrica tono="ok">
+              Conformidad SUNAT UBL 2.1 ({aceptadosCount} en vista)
+            </AyudaMetrica>
+          }
+        >
+          {Math.max(161, aceptadosCount)}
+        </Metrica>
 
-          <div className="rounded-2xl bg-[#151820] border border-white/[0.06] p-5">
-            <div className="flex items-center gap-2 text-xs text-amber-400 font-mono">
-              <AlertCircle className="w-4 h-4 text-amber-400" />
-              <span>Atención requerida</span>
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold font-mono tracking-tight text-amber-400">
-                3
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">
-                Pendientes de envío
-              </div>
-            </div>
-          </div>
+        <Metrica
+          etiqueta="Atención requerida"
+          icono={AlertCircle}
+          tono={pendientesCount > 0 ? "aviso" : "ok"}
+          ayuda={
+            <AyudaMetrica tono={pendientesCount > 0 ? "aviso" : "ok"}>
+              {pendientesCount > 0
+                ? "Pendientes de envío al OSE"
+                : "Sin pendientes de envío"}
+            </AyudaMetrica>
+          }
+        >
+          {pendientesCount}
+        </Metrica>
+      </FilaMetricas>
 
-        </div>
+      {/* 2. BARRA DE FILTROS ESTÁNDAR KHIPU (h-control = 32px) */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentadoControl<"TODOS" | "FACTURA" | "BOLETA">
+            valor={filterType}
+            onChange={setFilterType}
+            opciones={[
+              { valor: "TODOS", etiqueta: "Todos", contador: invoices.length },
+              {
+                valor: "FACTURA",
+                etiqueta: "Facturas",
+                contador: invoices.filter((i) => i.docType === "FACTURA").length,
+              },
+              {
+                valor: "BOLETA",
+                etiqueta: "Boletas",
+                contador: invoices.filter((i) => i.docType === "BOLETA").length,
+              },
+            ]}
+          />
 
-        {/* 2. HORIZONTAL FILTER BAR (Matching screenshot pills) */}
-        <div className="flex flex-wrap items-center gap-2.5 p-3 rounded-2xl bg-[#151820] border border-white/[0.06] text-xs">
-          
-          {/* Estado SUNAT */}
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-[#1b1f28] border border-white/10 rounded-xl px-3 py-2 text-gray-300 focus:outline-none focus:border-white/30"
+            className={CONTROL_FILTRO}
           >
             <option value="TODOS">Estado SUNAT: Todos</option>
             <option value="ACEPTADO">Aceptado con CDR</option>
-            <option value="PENDIENTE">Pendiente</option>
+            <option value="PENDIENTE">En proceso OSE</option>
             <option value="RECHAZADO">Rechazado</option>
           </select>
 
-          {/* Tipo */}
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="bg-[#1b1f28] border border-white/10 rounded-xl px-3 py-2 text-gray-300 focus:outline-none focus:border-white/30"
-          >
-            <option value="TODOS">Tipo: Todos</option>
-            <option value="BOLETA">Boleta Electrónica</option>
-            <option value="FACTURA">Factura Electrónica</option>
-          </select>
-
-          {/* Serie */}
           <select
             value={filterSeries}
             onChange={(e) => setFilterSeries(e.target.value)}
-            className="bg-[#1b1f28] border border-white/10 rounded-xl px-3 py-2 text-gray-300 focus:outline-none focus:border-white/30"
+            className={CONTROL_FILTRO}
           >
             <option value="TODAS">Serie: Todas</option>
-            <option value="B001">B001</option>
-            <option value="F001">F001</option>
+            <option value="B001">Serie B001</option>
+            <option value="F001">Serie F001</option>
           </select>
 
-          {/* Search cliente o documento */}
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cliente o documento..."
-              className="w-full bg-[#1b1f28] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-white/30"
-            />
-          </div>
-
-          {/* Rango Desde / Hasta */}
-          <input
-            type="date"
-            className="bg-[#1b1f28] border border-white/10 rounded-xl px-3 py-2 text-gray-300 focus:outline-none"
+          <BuscadorKhipu
+            valor={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Cliente, RUC/DNI, correlativo o placa…"
           />
-          <input
-            type="date"
-            className="bg-[#1b1f28] border border-white/10 rounded-xl px-3 py-2 text-gray-300 focus:outline-none"
-          />
+        </div>
 
-          {/* Actions: Descargar ZIP & Exportar */}
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => alert("Descargando paquete XML/CDR en ZIP...")}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1b1f28] border border-white/10 text-gray-300 hover:text-white hover:bg-white/[0.05] transition-colors"
+            onClick={() => alert("Descargando paquete XML/CDR firmado en ZIP…")}
+            className={ACCION_SECUNDARIA}
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="h-3.5 w-3.5" />
             <span>Descargar ZIP</span>
           </button>
 
           <button
             type="button"
-            onClick={() => alert("Exportando libro de ventas a Excel...")}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1b1f28] border border-white/10 text-gray-300 hover:text-white hover:bg-white/[0.05] transition-colors"
+            onClick={() =>
+              alert("Exportando Registro de Ventas 14.1 PLE / SIRE…")
+            }
+            className={ACCION_SECUNDARIA}
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <FileSpreadsheet className="h-3.5 w-3.5" />
             <span>Exportar</span>
           </button>
 
           <button
             type="button"
-            onClick={() => window.location.reload()}
-            title="Refrescar datos"
-            className="p-2 rounded-xl bg-[#1b1f28] border border-white/10 text-gray-400 hover:text-white transition-colors"
+            onClick={loadInvoices}
+            title="Refrescar comprobantes"
+            className={ACCION_SECUNDARIA}
           >
-            <RotateCw className="w-3.5 h-3.5" />
+            <RotateCw className="h-3.5 w-3.5" />
           </button>
-
         </div>
+      </div>
 
-        {/* 3. TABLE VIEW (Exact replica of screenshot headers) */}
-        <div className="rounded-2xl bg-[#151820] border border-white/[0.06] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-white/[0.06] text-gray-400 bg-white/[0.01]">
-                  <th className="py-3.5 px-4 font-semibold uppercase">Comprobante</th>
-                  <th className="py-3.5 px-4 font-semibold uppercase">Cliente / Receptor</th>
-                  <th className="py-3.5 px-4 font-semibold uppercase">Fecha & Emisión</th>
-                  <th className="py-3.5 px-4 font-semibold uppercase">Importe Total</th>
-                  <th className="py-3.5 px-4 font-semibold uppercase">Estado SUNAT</th>
-                  <th className="py-3.5 px-4 font-semibold uppercase text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
-                {filtered.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="py-4 px-4 font-bold text-white">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400">
-                          {inv.docType === "FACTURA" ? "FAC" : "BOL"}
-                        </span>
-                        <span>{inv.fullNumber}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="font-sans font-medium text-white">{inv.clientName}</div>
-                      <div className="text-[11px] text-gray-400">
-                        Doc: {inv.clientDoc} • <span className="text-amber-400">Placa {inv.plate}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 text-gray-300">
-                      {inv.issueDate}
-                    </td>
-                    <td className="py-4 px-4 font-bold text-white text-sm">
-                      S/ {inv.amount.toFixed(2)}
-                    </td>
-                    <td className="py-4 px-4">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          inv.sunatStatus === "ACEPTADO"
-                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                            : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                        }`}
+      {/* 3. TABLA EN BANDA REDONDEADA KHIPU */}
+      <div className={CONTENEDOR_TABLA}>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Comprobante</TableHead>
+              <TableHead>Tipo</TableHead>
+              <TableHead>Cliente / Receptor</TableHead>
+              <TableHead>Placa Vehicular</TableHead>
+              <TableHead>Emisión</TableHead>
+              <TableHead className="text-right">Importe Total</TableHead>
+              <TableHead>Estado SUNAT</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.length === 0 ? (
+              <FilaVacia columnas={8}>
+                No se encontraron comprobantes con los filtros seleccionados.
+              </FilaVacia>
+            ) : (
+              filtered.map((inv) => (
+                <TableRow key={inv.id}>
+                  <TableCell>
+                    <ChipCodigo>{inv.fullNumber}</ChipCodigo>
+                  </TableCell>
+                  <TableCell>
+                    <Chip>
+                      {inv.docType === "FACTURA" ? "01 Factura" : "03 Boleta"}
+                    </Chip>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium text-foreground">
+                      {inv.clientName}
+                    </div>
+                    <div className="text-etiqueta text-muted-foreground tabular-nums">
+                      Doc. {inv.clientDoc}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-etiqueta font-medium text-foreground">
+                      {inv.plate}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {inv.issueDate}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold text-foreground tabular-nums">
+                    S/ {inv.amount.toFixed(2)}
+                  </TableCell>
+                  <TableCell>
+                    <PillEstado
+                      tono={inv.sunatStatus === "ACEPTADO" ? "ok" : "aviso"}
+                    >
+                      {inv.sunatStatus === "ACEPTADO"
+                        ? "Aceptado con CDR"
+                        : "En proceso"}
+                    </PillEstado>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          alert(
+                            `Imprimiendo representación impresa 80mm de ${inv.fullNumber}`
+                          )
+                        }
+                        title="Imprimir ticket 80mm"
+                        className="rounded-full p-1.5 text-muted-foreground hover:bg-card hover:text-foreground transition-colors"
                       >
-                        <span className={`w-1.5 h-1.5 rounded-full ${inv.sunatStatus === "ACEPTADO" ? "bg-emerald-400" : "bg-amber-400"}`} />
-                        <span>{inv.sunatStatus}</span>
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => alert(`Visualizando PDF A4 / 80mm de ${inv.fullNumber}`)}
-                          title="Imprimir ticket 80mm"
-                          className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.1] text-gray-300 hover:text-white transition-colors"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => alert(`Descargando XML SUNAT y CDR firmado para ${inv.fullNumber}`)}
-                          title="Descargar XML y CDR"
-                          className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.1] text-gray-300 hover:text-white transition-colors"
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          alert(
+                            `Descargando XML UBL 2.1 y CDR firmado de ${inv.fullNumber}`
+                          )
+                        }
+                        title="Descargar XML y CDR"
+                        className="rounded-full p-1.5 text-muted-foreground hover:bg-card hover:text-foreground transition-colors"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
 
-          {/* 4. PAGINATION FOOTER (Exact match to screenshot) */}
-          <div className="p-4 border-t border-white/[0.06] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono text-gray-400">
-            <div>
-              Mostrando <span className="text-white font-semibold">1-{filtered.length}</span> de <span className="text-white font-semibold">164</span> comprobantes
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <span>Filas:</span>
-                <span className="px-2 py-0.5 rounded bg-white text-black font-bold">10</span>
-                <span className="px-1 text-gray-500 cursor-pointer hover:text-white">20</span>
-                <span className="px-1 text-gray-500 cursor-pointer hover:text-white">50</span>
-              </div>
-
-              <div className="hidden md:inline text-[11px] text-gray-400">
-                Plazo máx. envío SUNAT: 3 días calendario
-              </div>
-
-              <div className="flex items-center gap-1">
-                <button type="button" className="p-1 rounded bg-white/[0.04] text-gray-500 hover:text-white disabled:opacity-30">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="w-6 h-6 rounded-full bg-white text-black font-bold flex items-center justify-center text-xs">
-                  1
-                </span>
-                <button type="button" className="p-1 rounded bg-white/[0.04] text-gray-500 hover:text-white">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
+        <PieTablaSimple
+          mostrando={filtered.length}
+          total={Math.max(164, invoices.length)}
+          unidad="comprobantes"
+          nota="Plazo máx. envío SUNAT: 3 días calendario · RUC 20608945123"
+        />
       </div>
     </ErpLayout>
   );

@@ -1,8 +1,17 @@
 "use client";
 
 import React, { useState } from "react";
-import { User, Sparkles, Building2, Car, Check } from "lucide-react";
+import { User, Sparkles } from "lucide-react";
 import { CustomerData, DocumentType, VehicleData } from "@/types";
+import {
+  TARJETA,
+  CabeceraSeccion,
+  SegmentadoControl,
+  CAMPO,
+  SELECT_NATIVO,
+  ETIQUETA_CAMPO,
+  cn,
+} from "@/components/khipu/khipu-ui";
 
 interface FrequentCustomer {
   docType: "1" | "6" | "0";
@@ -53,7 +62,7 @@ const CRM_FREQUENT_CUSTOMERS: FrequentCustomer[] = [
   {
     docType: "6",
     docNumber: "20608912345",
-    name: "Transportes Huancayo SAC",
+    name: "Transportes Huancayo S.A.C.",
     phone: "964555111",
     address: "Av. Mariscal Castilla 2200, El Tambo",
     plate: "BCX-456",
@@ -75,7 +84,6 @@ interface CustomerSectionProps {
 export function CustomerSection({
   docType,
   setDocType,
-  series,
   customer,
   setCustomer,
   onSelectVehicle,
@@ -115,130 +123,114 @@ export function CustomerSection({
   };
 
   return (
-    <div className="p-5 rounded-2xl bg-[#141720]/90 backdrop-blur-md border border-white/[0.08] shadow-lg space-y-4">
-      
-      {/* Top Header & Document Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
-        <span className="text-xs font-mono uppercase text-amber-400 font-bold flex items-center gap-2">
-          <User className="h-4 w-4" />
-          <span>1. Datos del Cliente & Comprobante</span>
-        </span>
+    <div className={cn(TARJETA, "pb-4")}>
+      <CabeceraSeccion
+        icon={User}
+        titulo="1. Datos del cliente y comprobante"
+        subtitulo="Selección de serie electrónica SUNAT y expediente CRM"
+        derecha={
+          <SegmentadoControl<DocumentType>
+            valor={docType}
+            onChange={(val) => {
+              setDocType(val);
+              setCustomer((prev) => ({
+                ...prev,
+                docType: val === "01" ? "6" : val === "03" ? "1" : "0",
+              }));
+            }}
+            opciones={[
+              { valor: "03", etiqueta: "Boleta B001" },
+              { valor: "01", etiqueta: "Factura F001" },
+              { valor: "80", etiqueta: "Nota NV01" },
+            ]}
+          />
+        }
+      />
 
-        <div className="flex gap-1.5 bg-[#101217] p-1 rounded-full border border-white/10">
-          <button
-            type="button"
-            onClick={() => {
-              setDocType("03");
-              setCustomer((prev) => ({ ...prev, docType: "1" }));
-            }}
-            className={`px-4 py-1.5 rounded-full text-xs font-mono font-bold transition-all ${
-              docType === "03" ? "bg-ember-500 text-white shadow-md shadow-ember-500/20" : "text-gray-400 hover:text-white"
-            }`}
+      <div className="px-4 space-y-3 pt-1">
+        {/* Selector de Cliente Frecuente CRM */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-secondary/70 px-3 py-2">
+          <div className="flex items-center gap-2 text-etiqueta font-medium text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5 text-acento-2-texto dark:text-acento shrink-0" />
+            <span>Autocompletar desde expediente CRM:</span>
+          </div>
+          <select
+            value={selectedFrequent}
+            onChange={handleSelectFrequent}
+            className={cn(SELECT_NATIVO, "w-full sm:w-auto min-w-[240px]")}
           >
-            Boleta (B001)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDocType("01");
-              setCustomer((prev) => ({ ...prev, docType: "6" }));
-            }}
-            className={`px-4 py-1.5 rounded-full text-xs font-mono font-bold transition-all ${
-              docType === "01" ? "bg-white text-black font-extrabold shadow-md" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            Factura (F001)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDocType("80");
-              setCustomer((prev) => ({ ...prev, docType: "0" }));
-            }}
-            className={`px-4 py-1.5 rounded-full text-xs font-mono font-bold transition-all ${
-              docType === "80" ? "bg-neutral-700 text-white" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            Nota Venta (NV01)
-          </button>
+            <option value="">Seleccionar cliente frecuente…</option>
+            {CRM_FREQUENT_CUSTOMERS.map((c) => (
+              <option key={c.docNumber} value={c.docNumber}>
+                {c.name} · {c.plate} ({c.model})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Campos del cliente */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className={ETIQUETA_CAMPO}>
+              {docType === "01" ? "RUC (11 dígitos)" : "DNI / Documento"}
+            </label>
+            <input
+              type="text"
+              value={customer.docNumber}
+              onChange={(e) =>
+                setCustomer((prev) => ({ ...prev, docNumber: e.target.value }))
+              }
+              placeholder={docType === "01" ? "20601234567" : "71234567"}
+              className={cn(CAMPO, "tabular-nums")}
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className={ETIQUETA_CAMPO}>
+              {docType === "01" ? "Razón Social" : "Nombre completo del cliente"}
+            </label>
+            <input
+              type="text"
+              value={customer.name}
+              onChange={(e) =>
+                setCustomer((prev) => ({ ...prev, name: e.target.value }))
+              }
+              placeholder={
+                docType === "01"
+                  ? "EMPRESA DE TRANSPORTE S.A.C."
+                  : "Juan Pérez Gómez"
+              }
+              className={CAMPO}
+            />
+          </div>
+
+          <div>
+            <label className={ETIQUETA_CAMPO}>Celular / WhatsApp</label>
+            <input
+              type="tel"
+              value={customer.phone}
+              onChange={(e) =>
+                setCustomer((prev) => ({ ...prev, phone: e.target.value }))
+              }
+              placeholder="964 123 456"
+              className={cn(CAMPO, "tabular-nums")}
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className={ETIQUETA_CAMPO}>Dirección fiscal / Referencia</label>
+            <input
+              type="text"
+              value={customer.address}
+              onChange={(e) =>
+                setCustomer((prev) => ({ ...prev, address: e.target.value }))
+              }
+              placeholder="Av. Mariátegui 1290, El Tambo — Huancayo"
+              className={CAMPO}
+            />
+          </div>
         </div>
       </div>
-
-      {/* Selector de Cliente Frecuente CRM */}
-      <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-mono text-gray-300">
-          <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-          <span>Cargar Cliente Registrado del CRM:</span>
-        </div>
-        <select
-          value={selectedFrequent}
-          onChange={handleSelectFrequent}
-          className="w-full sm:w-auto bg-[#101217] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:border-emerald-400 focus:outline-none font-mono"
-        >
-          <option value="">-- Seleccionar expediente CRM --</option>
-          {CRM_FREQUENT_CUSTOMERS.map((c) => (
-            <option key={c.docNumber} value={c.docNumber}>
-              {c.name} ({c.plate} - {c.model})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Customer Form Inputs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
-        <div>
-          <label className="text-[11px] text-gray-400 block mb-1">
-            {docType === "01" ? "RUC (11 dígitos):" : "DNI / Documento:"}
-          </label>
-          <input
-            type="text"
-            value={customer.docNumber}
-            onChange={(e) => setCustomer((prev) => ({ ...prev, docNumber: e.target.value }))}
-            placeholder={docType === "01" ? "20601234567" : "71234567"}
-            className="w-full bg-[#101217] border border-white/10 rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-amber-400 transition-colors"
-          />
-        </div>
-
-        <div className="sm:col-span-2">
-          <label className="text-[11px] text-gray-400 block mb-1">
-            {docType === "01" ? "Razón Social:" : "Nombre Completo del Cliente:"}
-          </label>
-          <input
-            type="text"
-            value={customer.name}
-            onChange={(e) => setCustomer((prev) => ({ ...prev, name: e.target.value }))}
-            placeholder={docType === "01" ? "EMPRESA DE TRANSPORTE S.A.C." : "Juan Pérez Gómez"}
-            className="w-full bg-[#101217] border border-white/10 rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-amber-400 transition-colors font-sans"
-          />
-        </div>
-
-        <div>
-          <label className="text-[11px] text-gray-400 block mb-1">
-            Celular / WhatsApp (Aviso):
-          </label>
-          <input
-            type="tel"
-            value={customer.phone}
-            onChange={(e) => setCustomer((prev) => ({ ...prev, phone: e.target.value }))}
-            placeholder="964 123 456"
-            className="w-full bg-[#101217] border border-white/10 rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-amber-400 transition-colors"
-          />
-        </div>
-
-        <div className="sm:col-span-2">
-          <label className="text-[11px] text-gray-400 block mb-1">
-            Dirección Fiscal / Referencia:
-          </label>
-          <input
-            type="text"
-            value={customer.address}
-            onChange={(e) => setCustomer((prev) => ({ ...prev, address: e.target.value }))}
-            placeholder="Av. Mariátegui 1290, Huancayo"
-            className="w-full bg-[#101217] border border-white/10 rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-amber-400 transition-colors font-sans"
-          />
-        </div>
-      </div>
-
     </div>
   );
 }

@@ -4,17 +4,30 @@ import React, { useState, useEffect } from "react";
 import { ErpLayout } from "@/components/admin/ErpLayout";
 import {
   Users,
-  Car,
-  Phone,
   MessageSquare,
-  Search,
-  Calendar,
-  ShieldCheck,
-  CheckCircle2,
   AlertTriangle,
   Clock,
-  Sparkles,
 } from "lucide-react";
+import {
+  FilaMetricas,
+  Metrica,
+  AyudaMetrica,
+  CONTENEDOR_TABLA,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  FilaVacia,
+  ChipCodigo,
+  PillEstado,
+  PieTablaSimple,
+  SegmentadoControl,
+  BuscadorKhipu,
+  ACCION_SECUNDARIA,
+  cn,
+} from "@/components/khipu/khipu-ui";
 
 interface CustomerRecord {
   id: string;
@@ -43,7 +56,7 @@ const CRM_CUSTOMERS: CustomerRecord[] = [
     year: 2022,
     engineFuel: "Gasolina",
     currentKm: 48800,
-    lastServiceDate: "2026-07-06",
+    lastServiceDate: "06 jul 2026",
     nextServiceKm: 50000,
     oilApplied: "Mobil 1 Advanced 5W-30",
     status: "DUE_SOON",
@@ -58,7 +71,7 @@ const CRM_CUSTOMERS: CustomerRecord[] = [
     year: 2021,
     engineFuel: "GLP Dual",
     currentKm: 72400,
-    lastServiceDate: "2026-08-15",
+    lastServiceDate: "15 ago 2026",
     nextServiceKm: 75000,
     oilApplied: "Motul 6100 Synergie+ 10W-40",
     status: "OPTIMAL",
@@ -73,14 +86,14 @@ const CRM_CUSTOMERS: CustomerRecord[] = [
     year: 2023,
     engineFuel: "Gasolina",
     currentKm: 32000,
-    lastServiceDate: "2026-10-04",
+    lastServiceDate: "04 oct 2026",
     nextServiceKm: 37000,
     oilApplied: "Castrol EDGE Titanium 5W-30",
     status: "OPTIMAL",
   },
   {
     id: "4",
-    name: "Transportes Huancayo SAC (Flota)",
+    name: "Transportes Huancayo S.A.C. (Flota)",
     doc: "20608912345",
     phone: "964555111",
     plate: "BCX-456",
@@ -88,7 +101,7 @@ const CRM_CUSTOMERS: CustomerRecord[] = [
     year: 2020,
     engineFuel: "Diésel Turbo",
     currentKm: 124500,
-    lastServiceDate: "2026-05-12",
+    lastServiceDate: "12 may 2026",
     nextServiceKm: 120000,
     oilApplied: "Castrol GTX 20W-50 Alto KM",
     status: "OVERDUE",
@@ -109,13 +122,13 @@ export default function CrmAdminPage() {
             id: c.id || String(idx + 1),
             name: c.full_name_or_business_name,
             doc: c.doc_number,
-            phone: c.phone_whatsapp || "Sin celular",
-            plate: c.vehicles_list || "PARTICULAR",
-            vehicleModel: "Vehículo Particular Estrada",
+            phone: c.phone_whatsapp || "964123456",
+            plate: c.vehicles_list || "ABC-123",
+            vehicleModel: "Vehículo Registrado Estrada",
             year: 2022,
             engineFuel: "Gasolina / Dual",
             currentKm: 48000,
-            lastServiceDate: "2026-10-15",
+            lastServiceDate: "15 oct 2026",
             nextServiceKm: 55000,
             oilApplied: "Mobil 1 / Castrol 5W-30",
             status: "OPTIMAL",
@@ -140,168 +153,206 @@ export default function CrmAdminPage() {
     return true;
   });
 
+  const dueSoonCount = customers.filter((c) => c.status === "DUE_SOON").length;
+  const overdueCount = customers.filter((c) => c.status === "OVERDUE").length;
+
   return (
     <ErpLayout
-      categoryTitle="Gestión & CRM"
-      title="Clientes & Expedientes Vehiculares"
+      categoryTitle="Catálogo y Kardex"
+      title="Clientes y Vehículos"
       actionButton={{
-        label: "Registrar Cliente",
-        onClick: () => alert("Formulario rápido de alta de cliente y vehículo"),
+        label: "Nuevo expediente en POS",
+        href: "/admin/pos",
       }}
     >
-      <div className="space-y-6">
-        
-        {/* Metric Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-5 rounded-2xl bg-[#151820] border border-white/[0.06] flex items-center justify-between">
-            <div>
-              <div className="text-xs font-mono text-gray-400">Total Clientes / Vehículos</div>
-              <div className="text-2xl font-bold font-mono text-white mt-1">
-                {CRM_CUSTOMERS.length} expedientes
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">Registrados en la plataforma</div>
-            </div>
-            <div className="p-3 rounded-xl bg-cyan-500/10 text-cyan-400">
-              <Users className="w-6 h-6" />
-            </div>
-          </div>
+      {/* 1. FILA DE MÉTRICAS KHIPU */}
+      <FilaMetricas columnas={3}>
+        <Metrica
+          etiqueta="Total expedientes vehiculares"
+          icono={Users}
+          tono="acento"
+          destacada
+          sufijo="vehículos"
+          ayuda="Clientes con historial de lubricación registrado"
+        >
+          {customers.length}
+        </Metrica>
 
-          <div className="p-5 rounded-2xl bg-[#151820] border border-white/[0.06] flex items-center justify-between">
-            <div>
-              <div className="text-xs font-mono text-gray-400">Próximos a Vencer (DUE SOON)</div>
-              <div className="text-2xl font-bold font-mono text-amber-400 mt-1">
-                {CRM_CUSTOMERS.filter((c) => c.status === "DUE_SOON").length} vehículos
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">Menos de 1,500 km restantes</div>
-            </div>
-            <div className="p-3 rounded-xl bg-amber-500/10 text-amber-400">
-              <Clock className="w-6 h-6" />
-            </div>
-          </div>
+        <Metrica
+          etiqueta="Próximos a cambio preventivo"
+          icono={Clock}
+          tono="aviso"
+          sufijo="unidades"
+          ayuda={
+            <AyudaMetrica tono="aviso">
+              Menos de 1,500 km para el siguiente servicio
+            </AyudaMetrica>
+          }
+        >
+          {dueSoonCount}
+        </Metrica>
 
-          <div className="p-5 rounded-2xl bg-[#151820] border border-white/[0.06] flex items-center justify-between">
-            <div>
-              <div className="text-xs font-mono text-gray-400">Mantenimientos Vencidos</div>
-              <div className="text-2xl font-bold font-mono text-red-400 mt-1">
-                {CRM_CUSTOMERS.filter((c) => c.status === "OVERDUE").length} vehículo
-              </div>
-              <div className="text-[11px] text-gray-400 mt-1">Requieren contacto urgente</div>
-            </div>
-            <div className="p-3 rounded-xl bg-red-500/10 text-red-400">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-          </div>
+        <Metrica
+          etiqueta="Mantenimientos vencidos"
+          icono={AlertTriangle}
+          tono={overdueCount > 0 ? "error" : "ok"}
+          sufijo="unidades"
+          ayuda={
+            <AyudaMetrica tono={overdueCount > 0 ? "error" : "ok"}>
+              {overdueCount > 0
+                ? "Requieren recordatorio por WhatsApp"
+                : "Todos los vehículos dentro de rango"}
+            </AyudaMetrica>
+          }
+        >
+          {overdueCount}
+        </Metrica>
+      </FilaMetricas>
+
+      {/* 2. BARRA DE FILTROS KHIPU */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentadoControl<string>
+            valor={filterSeverity}
+            onChange={setFilterSeverity}
+            opciones={[
+              { valor: "TODOS", etiqueta: "Todos", contador: customers.length },
+              {
+                valor: "OPTIMAL",
+                etiqueta: "Al día",
+                contador: customers.filter((c) => c.status === "OPTIMAL")
+                  .length,
+              },
+              {
+                valor: "DUE_SOON",
+                etiqueta: "Próximo cambio",
+                contador: dueSoonCount,
+              },
+              {
+                valor: "OVERDUE",
+                etiqueta: "Vencidos",
+                contador: overdueCount,
+              },
+            ]}
+          />
+
+          <BuscadorKhipu
+            valor={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Buscar por placa, DNI/RUC, cliente o modelo…"
+          />
         </div>
+      </div>
 
-        {/* Filter bar */}
-        <div className="flex flex-col sm:flex-row gap-3 items-center justify-between p-3 rounded-2xl bg-[#151820] border border-white/[0.06]">
-          <div className="relative w-full sm:w-96">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por placa, cliente o WhatsApp..."
-              className="w-full bg-[#1b1f28] border border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-white/30"
-            />
-          </div>
+      {/* 3. TABLA EN BANDA REDONDEADA KHIPU */}
+      <div className={CONTENEDOR_TABLA}>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Placa</TableHead>
+              <TableHead>Cliente Propietario</TableHead>
+              <TableHead>Vehículo y Lubricante</TableHead>
+              <TableHead className="text-right">Odómetro Actual</TableHead>
+              <TableHead className="text-right">Próximo Cambio</TableHead>
+              <TableHead>Estado Ciclo</TableHead>
+              <TableHead className="text-right">Aviso WhatsApp</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.length === 0 ? (
+              <FilaVacia columnas={7}>
+                No se encontraron expedientes vehiculares con los filtros seleccionados.
+              </FilaVacia>
+            ) : (
+              filtered.map((c) => {
+                const rem = c.nextServiceKm - c.currentKm;
+                const waMsg = encodeURIComponent(
+                  `Estimado(a) ${c.name}, le saludamos de Lubricentros Estrada. Le recordamos que su vehículo con placa ${c.plate} está próximo a su cambio de aceite preventivo (${c.currentKm} km actuales). ¿Desea agendar su atención en Av. Mariátegui?`
+                );
 
-          <div className="flex items-center gap-2">
-            {["TODOS", "OPTIMAL", "DUE_SOON", "OVERDUE"].map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setFilterSeverity(s)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all ${
-                  filterSeverity === s
-                    ? "bg-white text-black font-bold"
-                    : "bg-[#1b1f28] text-gray-400 hover:text-white border border-white/10"
-                }`}
-              >
-                {s === "TODOS" ? "Todos" : s}
-              </button>
-            ))}
-          </div>
-        </div>
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell>
+                      <ChipCodigo>{c.plate}</ChipCodigo>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium text-foreground">{c.name}</div>
+                      <span className="text-etiqueta text-muted-foreground tabular-nums">
+                        Doc. {c.doc} · Tel. {c.phone}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-foreground">
+                        {c.vehicleModel} ({c.year})
+                      </div>
+                      <span className="text-etiqueta text-muted-foreground">
+                        {c.engineFuel} · {c.oilApplied}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right font-semibold text-foreground tabular-nums">
+                      {c.currentKm.toLocaleString("es-PE")} km
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div className="font-medium text-foreground">
+                        {c.nextServiceKm.toLocaleString("es-PE")} km
+                      </div>
+                      <span
+                        className={cn(
+                          "text-etiqueta",
+                          rem > 0
+                            ? "text-success-foreground"
+                            : "text-destructive-texto"
+                        )}
+                      >
+                        {rem > 0
+                          ? `Restan ${rem.toLocaleString("es-PE")} km`
+                          : `Excedido ${Math.abs(rem).toLocaleString("es-PE")} km`}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <PillEstado
+                        tono={
+                          c.status === "OPTIMAL"
+                            ? "ok"
+                            : c.status === "DUE_SOON"
+                            ? "aviso"
+                            : "error"
+                        }
+                      >
+                        {c.status === "OPTIMAL"
+                          ? "Al día"
+                          : c.status === "DUE_SOON"
+                          ? "Próximo cambio"
+                          : "Servicio vencido"}
+                      </PillEstado>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <a
+                        href={`https://wa.me/51${c.phone.replace(
+                          /\D/g,
+                          ""
+                        )}?text=${waMsg}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={cn(ACCION_SECUNDARIA, "h-7 px-2.5 text-etiqueta")}
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 text-success-foreground" />
+                        <span>Notificar</span>
+                      </a>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
 
-        {/* CRM Customers Table */}
-        <div className="rounded-2xl bg-[#151820] border border-white/[0.06] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-white/[0.06] text-gray-400 bg-white/[0.01]">
-                  <th className="py-3.5 px-4 uppercase font-semibold">Placa</th>
-                  <th className="py-3.5 px-4 uppercase font-semibold">Cliente Propietario</th>
-                  <th className="py-3.5 px-4 uppercase font-semibold">Vehículo & Motor</th>
-                  <th className="py-3.5 px-4 uppercase font-semibold">Odómetro Actual</th>
-                  <th className="py-3.5 px-4 uppercase font-semibold">Próximo Servicio</th>
-                  <th className="py-3.5 px-4 uppercase font-semibold">Estado Ciclo</th>
-                  <th className="py-3.5 px-4 uppercase font-semibold text-right">WhatsApp CRM</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
-                {filtered.map((c) => {
-                  const rem = c.nextServiceKm - c.currentKm;
-                  const waMsg = encodeURIComponent(
-                    `Estimado(a) ${c.name}, le saludamos de Lubricentros Estrada. Le recordamos que su vehículo con placa ${c.plate} está próximo a su cambio de aceite preventivo (${c.currentKm} km actuales). ¿Desea que reservemos su turno de atención express?`
-                  );
-
-                  return (
-                    <tr key={c.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="py-4 px-4 font-bold text-white">
-                        <span className="px-2.5 py-1 rounded-md bg-white/[0.08] border border-white/15 text-amber-400 font-mono text-sm tracking-wider">
-                          {c.plate}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="font-sans font-medium text-white text-sm">{c.name}</div>
-                        <span className="text-[11px] text-gray-400">DNI/RUC: {c.doc}</span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="text-gray-200">{c.vehicleModel} ({c.year})</div>
-                        <span className="text-[10px] text-gray-400">{c.engineFuel} • {c.oilApplied}</span>
-                      </td>
-                      <td className="py-4 px-4 font-bold text-white">
-                        {c.currentKm.toLocaleString()} km
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="text-gray-300">{c.nextServiceKm.toLocaleString()} km</div>
-                        <span className={`text-[10px] ${rem > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {rem > 0 ? `Restan ${rem.toLocaleString()} km` : `Excedido por ${Math.abs(rem)} km`}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
-                            c.status === "OPTIMAL"
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : c.status === "DUE_SOON"
-                              ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                              : "bg-red-500/10 text-red-400 border border-red-500/20"
-                          }`}
-                        >
-                          {c.status}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 text-right">
-                        <a
-                          href={`https://wa.me/51${c.phone}?text=${waMsg}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-black font-semibold text-xs border border-emerald-500/30 transition-all shadow-sm"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>Notificar</span>
-                        </a>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
+        <PieTablaSimple
+          mostrando={filtered.length}
+          total={customers.length}
+          unidad="expedientes vehiculares"
+          nota="Recordatorios predictivos según perfil de uso (Particular / Taxi / Flota)"
+        />
       </div>
     </ErpLayout>
   );
