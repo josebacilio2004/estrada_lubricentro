@@ -161,6 +161,8 @@ type CreateProductRequest struct {
 }
 
 type UpdateProductRequest struct {
+	SKU            string          `json:"sku"`
+	Barcode        string          `json:"barcode"`
 	Name           string          `json:"name"`
 	Description    string          `json:"description"`
 	CategoryID     uuid.UUID       `json:"category_id"`
@@ -357,4 +359,36 @@ type DailySaleData struct {
 	Amount decimal.Decimal `json:"amount"`
 	Count  int64           `json:"count"`
 }
+
+// ----------------------------------------------------
+// MODELOS APP MÓVIL FLUTTER (ESCÁNER INVENTARIO & POS)
+// ----------------------------------------------------
+
+type ScanInventorySyncRequest struct {
+	ProductID    uuid.UUID       `json:"product_id"`
+	MovementType string          `json:"movement_type"` // IN_PURCHASE, ADJUSTMENT_POS, ADJUSTMENT_NEG, SET_STOCK
+	Quantity     decimal.Decimal `json:"quantity"`
+	UnitCost     decimal.Decimal `json:"unit_cost"`
+	Notes        string          `json:"notes"`
+}
+
+type PosScanRequest struct {
+	Barcode   string          `json:"barcode"`
+	Quantity  decimal.Decimal `json:"quantity"`
+	SessionID string          `json:"session_id"`
+}
+
+type PosScanEventItem struct {
+	ScanID    uuid.UUID       `json:"scan_id"`
+	Quantity  decimal.Decimal `json:"quantity"`
+	ScannedAt time.Time       `json:"scanned_at"`
+	Product   Product         `json:"product"`
+}
+
+type MediaUploadBase64Request struct {
+	Filename   string `json:"filename"`
+	MimeType   string `json:"mime_type"`
+	Base64Data string `json:"base64_data"`
+}
+
 

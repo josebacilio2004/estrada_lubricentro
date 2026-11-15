@@ -10,9 +10,15 @@ interface Product {
   sku: string;
   barcode: string;
   name: string;
+  description?: string;
+  category_id?: string;
+  brand_id?: string;
   presentation: string;
+  purchase_price?: string | number;
   sale_price: string | number;
   stock_current: string | number;
+  stock_min?: string | number;
+  image_url?: string;
   brand_name: string;
   category_name: string;
   technical_specs?: any;
@@ -53,19 +59,19 @@ export default function ProductsAdminPage() {
       sku: p.sku,
       barcode: p.barcode || "",
       name: p.name,
-      description: "",
-      category_id: "",
-      brand_id: "",
+      description: p.description || "",
+      category_id: p.category_id || "",
+      brand_id: p.brand_id || "",
       presentation: p.presentation,
-      purchase_price: 0,
+      purchase_price: Number(p.purchase_price || Math.round(Number(p.sale_price) * 0.72)),
       sale_price: Number(p.sale_price),
       stock_current: Number(p.stock_current),
-      stock_min: 5,
+      stock_min: Number(p.stock_min || 5),
       viscosity: specs.viscosity || "5W-30",
       oil_type: specs.oil_type || "Sintético",
       api_norm: specs.api_norm || "API SP",
-      lifespan_km: specs.lifespan_km || 10000,
-      image_url: "",
+      lifespan_km: Number(specs.lifespan_km || 10000),
+      image_url: p.image_url || "/media/line-synthetic.png",
     });
     setIsModalOpen(true);
   };
@@ -223,8 +229,22 @@ export default function ProductsAdminPage() {
                           )}
                         </td>
                         <td className="py-4 px-4">
-                          <div className="font-sans font-medium text-white text-sm">{p.name}</div>
-                          <span className="text-[11px] text-gray-400">{p.brand_name}</span>
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-[#1b1f28] border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">
+                              <img
+                                src={p.image_url || "/media/line-synthetic.png"}
+                                alt={p.name}
+                                className="w-full h-full object-contain p-1"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = "/media/line-synthetic.png";
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <div className="font-sans font-medium text-white text-sm">{p.name}</div>
+                              <span className="text-[11px] text-gray-400">{p.brand_name}</span>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-4 px-4 text-gray-300">
                           {p.presentation}

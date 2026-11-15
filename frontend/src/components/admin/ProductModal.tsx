@@ -198,10 +198,9 @@ export function ProductModal({ isOpen, onClose, product, onSaved }: ProductModal
               <input
                 type="text"
                 required
-                disabled={isEditing}
                 value={formData.sku}
                 onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
-                className="w-full bg-ink-900 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:border-ember-500 focus:outline-none disabled:opacity-50"
+                className="w-full bg-ink-900 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:border-ember-500 focus:outline-none"
                 placeholder="MOB-5W30-GLN"
               />
             </div>
@@ -353,19 +352,87 @@ export function ProductModal({ isOpen, onClose, product, onSaved }: ProductModal
                 placeholder="API SP / ACEA C3"
               />
             </div>
-            <div>
-              <label className="block text-[11px] font-mono text-text-dim mb-1">Vida Útil (km)</label>
-              <input
-                type="number"
-                step="500"
-                value={formData.lifespan_km}
-                onChange={(e) => setFormData({ ...formData, lifespan_km: parseInt(e.target.value) || 5000 })}
-                className="w-full bg-ink-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white focus:border-ember-500 focus:outline-none"
-              />
+              <div>
+                <label className="block text-[11px] font-mono text-text-dim mb-1">Vida Útil (km)</label>
+                <input
+                  type="number"
+                  step="500"
+                  value={formData.lifespan_km}
+                  onChange={(e) => setFormData({ ...formData, lifespan_km: parseInt(e.target.value) || 5000 })}
+                  className="w-full bg-ink-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white focus:border-ember-500 focus:outline-none"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Botones de Acción */}
+            {/* Fila 6: Imagen del Producto (Enlace URL o Subir Archivo a PostgreSQL) */}
+            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-mono text-text-dim">
+                  Imagen del Producto (Enlace URL o Subir Archivo a Base de Datos)
+                </label>
+                <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-ember-500/15 hover:bg-ember-500/25 border border-ember-500/30 text-ember-400 text-[11px] font-mono font-semibold transition-all">
+                  <span>Subir Foto / Archivo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        setLoading(true);
+                        const apiUrl = typeof window !== "undefined" ? "/v1" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/v1");
+                        const fd = new FormData();
+                        fd.append("file", file);
+                        const res = await fetch(`${apiUrl}/media/upload`, {
+                          method: "POST",
+                          body: fd,
+                        });
+                        const data = await res.json();
+                        if (data.success && data.data?.url) {
+                          setFormData((prev) => ({ ...prev, image_url: data.data.url }));
+                        } else {
+                          setError(data.error?.message || "No se pudo subir la imagen");
+                        }
+                      } catch {
+                        setError("Error al subir archivo de imagen al servidor");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-4 items-center">
+                <div className="flex-1 w-full">
+                  <input
+                    type="text"
+                    value={formData.image_url}
+                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                    className="w-full bg-ink-900 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:border-ember-500 focus:outline-none"
+                    placeholder="https://ejemplo.com/aceite.png o /media/line-synthetic.png"
+                  />
+                  <p className="text-[11px] text-text-lo mt-1.5">
+                    Pegue un enlace directo de imagen (https://...) o suba una fotografía que se guardará en PostgreSQL.
+                  </p>
+                </div>
+                {formData.image_url && (
+                  <div className="w-16 h-16 rounded-xl bg-ink-900 border border-white/15 overflow-hidden flex items-center justify-center flex-shrink-0">
+                    <img
+                      src={formData.image_url}
+                      alt="Vista previa"
+                      className="w-full h-full object-contain p-1"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = "/media/line-synthetic.png";
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Botones de Acción */}
           <div className="pt-4 border-t border-white/10 flex items-center justify-end gap-3">
             <button
               type="button"

@@ -58,7 +58,7 @@ services:
       - S3_ENDPOINT=http://minio:9000
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/lubricentro-notifications
     ports:
-      - "8080:8080"
+      - "8085:8080"
     networks:
       - frontend_net
       - backend_net

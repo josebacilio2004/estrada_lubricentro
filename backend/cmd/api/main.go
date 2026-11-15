@@ -59,8 +59,9 @@ func main() {
 	app := fiber.New(fiber.Config{
 		AppName:               "Lubricentros Estrada Core API v2.0",
 		ServerHeader:          "Fiber/Estrada-Core",
-		ReadTimeout:           10 * time.Second,
-		WriteTimeout:          10 * time.Second,
+		BodyLimit:             20 * 1024 * 1024, // 20 MB para fotos desde celular y web
+		ReadTimeout:           15 * time.Second,
+		WriteTimeout:          15 * time.Second,
 		DisableStartupMessage: false,
 	})
 

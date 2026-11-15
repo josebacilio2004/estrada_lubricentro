@@ -2,8 +2,10 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -59,9 +61,19 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 
 	// Catálogo & Productos CRUD
 	v1.Get("/products", h.GetProducts)
+	v1.Get("/products/barcode/:code", h.GetProductByBarcode)
 	v1.Post("/products", h.CreateProduct)
 	v1.Put("/products/:id", h.UpdateProduct)
 	v1.Delete("/products/:id", h.DeleteProduct)
+
+	// Sincronización Móvil de Inventario & Escáner POS en Tiempo Real
+	v1.Post("/inventory/scan-sync", h.ScanSyncInventory)
+	v1.Post("/pos/scan", h.PushPosScan)
+	v1.Get("/pos/scan-queue", h.ConsumePosScanQueue)
+
+	// Carga y Servicio de Imágenes en BD (Celular y Web)
+	v1.Post("/media/upload", h.UploadMediaImage)
+	v1.Get("/media/:id", h.GetMediaImage)
 	
 	// Categorías CRUD
 	v1.Get("/categories", h.GetCategories)
@@ -132,8 +144,10 @@ func (h *Handler) GetProducts(c *fiber.Ctx) error {
 	viscosity := c.Query("viscosity", "")
 
 	query := `
-		SELECT p.id, p.sku, p.barcode, p.name, p.presentation, p.sale_price, 
-		       p.stock_current, p.image_url, p.technical_specs, b.name as brand_name, c.name as category_name
+		SELECT p.id, p.sku, COALESCE(p.barcode, ''), p.name, COALESCE(p.description, ''),
+		       p.category_id, p.brand_id, p.presentation, p.purchase_price, p.sale_price, 
+		       p.stock_current, p.stock_min, COALESCE(p.image_url, ''), p.technical_specs, 
+		       b.name as brand_name, c.name as category_name
 		FROM products p
 		JOIN brands b ON p.brand_id = b.id
 		JOIN categories c ON p.category_id = c.id
@@ -143,7 +157,7 @@ func (h *Handler) GetProducts(c *fiber.Ctx) error {
 	argIdx := 1
 
 	if q != "" {
-		query += fmt.Sprintf(" AND (p.name ILIKE '%%' || $%d || '%%' OR p.sku ILIKE '%%' || $%d || '%%')", argIdx, argIdx)
+		query += fmt.Sprintf(" AND (p.name ILIKE '%%' || $%d || '%%' OR p.sku ILIKE '%%' || $%d || '%%' OR COALESCE(p.barcode, '') ILIKE '%%' || $%d || '%%')", argIdx, argIdx, argIdx)
 		args = append(args, q)
 		argIdx++
 	}
@@ -154,7 +168,7 @@ func (h *Handler) GetProducts(c *fiber.Ctx) error {
 		argIdx++
 	}
 
-	query += ` ORDER BY p.name ASC LIMIT 100`
+	query += ` ORDER BY p.name ASC LIMIT 200`
 
 	rows, err := h.db.Query(c.Context(), query, args...)
 	if err != nil {
@@ -166,21 +180,14 @@ func (h *Handler) GetProducts(c *fiber.Ctx) error {
 	for rows.Next() {
 		var p domain.Product
 		var specs []byte
-		var barcode *string
-		var img *string
 		err := rows.Scan(
-			&p.ID, &p.SKU, &barcode, &p.Name, &p.Presentation,
-			&p.SalePrice, &p.StockCurrent, &img, &specs,
+			&p.ID, &p.SKU, &p.Barcode, &p.Name, &p.Description,
+			&p.CategoryID, &p.BrandID, &p.Presentation, &p.PurchasePrice, &p.SalePrice,
+			&p.StockCurrent, &p.StockMin, &p.ImageURL, &specs,
 			&p.BrandName, &p.CategoryName,
 		)
 		if err != nil {
 			continue
-		}
-		if barcode != nil {
-			p.Barcode = *barcode
-		}
-		if img != nil {
-			p.ImageURL = *img
 		}
 		if len(specs) > 0 {
 			_ = json.Unmarshal(specs, &p.TechnicalSpecs)
@@ -285,9 +292,28 @@ func (h *Handler) CreateProduct(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "VALIDATION_ERROR", "SKU y Nombre son requeridos")
 	}
 
+	if req.CategoryID == uuid.Nil {
+		_ = h.db.QueryRow(c.Context(), `SELECT id FROM categories WHERE is_active = true ORDER BY name ASC LIMIT 1`).Scan(&req.CategoryID)
+	}
+	if req.BrandID == uuid.Nil {
+		_ = h.db.QueryRow(c.Context(), `SELECT id FROM brands ORDER BY name ASC LIMIT 1`).Scan(&req.BrandID)
+	}
+	if req.Presentation == "" {
+		req.Presentation = "1 Unidad"
+	}
+	if req.ImageURL == "" {
+		req.ImageURL = "/media/line-synthetic.png"
+	}
+
 	specsJSON, err := json.Marshal(req.TechnicalSpecs)
-	if err != nil {
-		specsJSON = []byte("{}")
+	if err != nil || len(specsJSON) == 0 || string(specsJSON) == "null" {
+		specsJSON = []byte(`{"viscosity":"5W-30","oil_type":"Full Sintético","api_norm":"API SP","lifespan_km":10000}`)
+	}
+
+	var barcodePtr *string
+	if strings.TrimSpace(req.Barcode) != "" {
+		b := strings.TrimSpace(req.Barcode)
+		barcodePtr = &b
 	}
 
 	query := `
@@ -304,20 +330,29 @@ func (h *Handler) CreateProduct(c *fiber.Ctx) error {
 	var newID uuid.UUID
 	err = h.db.QueryRow(
 		c.Context(), query,
-		req.SKU, req.Barcode, req.Name, req.Description, req.CategoryID, req.BrandID,
+		req.SKU, barcodePtr, req.Name, req.Description, req.CategoryID, req.BrandID,
 		req.Presentation, specsJSON, req.PurchasePrice,
 		req.SalePrice, req.StockCurrent, req.StockMin, req.ImageURL,
 	).Scan(&newID)
 
 	if err != nil {
 		logger.Error("Error creando producto", "error", err.Error(), "sku", req.SKU)
-		return response.Error(c, fiber.StatusInternalServerError, "DB_ERROR", "No se pudo registrar el producto", err.Error())
+		return response.Error(c, fiber.StatusInternalServerError, "DB_ERROR", "No se pudo registrar el producto (verifique SKU o código de barras duplicado)", err.Error())
+	}
+
+	if req.StockCurrent.GreaterThan(decimal.Zero) {
+		_, _ = h.db.Exec(c.Context(), `
+			INSERT INTO inventory_movements (product_id, movement_type, quantity, stock_before, stock_after, unit_cost, reference_doc)
+			VALUES ($1, 'IN_PURCHASE', $2, 0, $2, $3, 'ALTA INICIAL CATÁLOGO')
+		`, newID, req.StockCurrent, req.PurchasePrice)
 	}
 
 	return response.JSON(c, fiber.StatusCreated, fiber.Map{
-		"id":      newID,
-		"sku":     req.SKU,
-		"message": "Producto registrado exitosamente",
+		"id":        newID,
+		"sku":       req.SKU,
+		"barcode":   req.Barcode,
+		"image_url": req.ImageURL,
+		"message":   "Producto registrado exitosamente en PostgreSQL",
 	})
 }
 
@@ -334,21 +369,37 @@ func (h *Handler) UpdateProduct(c *fiber.Ctx) error {
 	}
 
 	specsJSON, err := json.Marshal(req.TechnicalSpecs)
-	if err != nil {
+	if err != nil || len(specsJSON) == 0 || string(specsJSON) == "null" {
 		specsJSON = []byte("{}")
+	}
+
+	var barcodePtr *string
+	if strings.TrimSpace(req.Barcode) != "" {
+		b := strings.TrimSpace(req.Barcode)
+		barcodePtr = &b
 	}
 
 	query := `
 		UPDATE products SET
-			name = $1, description = $2, category_id = $3, brand_id = $4,
-			presentation = $5, technical_specs = $6, purchase_price = $7,
-			sale_price = $8, stock_current = $9, stock_min = $10,
-			image_url = $11, updated_at = NOW()
-		WHERE id = $12 AND is_active = true`
+			sku = COALESCE(NULLIF($1, ''), sku),
+			barcode = COALESCE($2, barcode),
+			name = $3,
+			description = $4,
+			category_id = COALESCE(NULLIF($5, '00000000-0000-0000-0000-000000000000'::uuid), category_id),
+			brand_id = COALESCE(NULLIF($6, '00000000-0000-0000-0000-000000000000'::uuid), brand_id),
+			presentation = $7,
+			technical_specs = $8,
+			purchase_price = $9,
+			sale_price = $10,
+			stock_current = $11,
+			stock_min = $12,
+			image_url = COALESCE(NULLIF($13, ''), image_url),
+			updated_at = NOW()
+		WHERE id = $14 AND is_active = true`
 
 	cmd, err := h.db.Exec(
 		c.Context(), query,
-		req.Name, req.Description, req.CategoryID, req.BrandID,
+		req.SKU, barcodePtr, req.Name, req.Description, req.CategoryID, req.BrandID,
 		req.Presentation, specsJSON, req.PurchasePrice,
 		req.SalePrice, req.StockCurrent, req.StockMin,
 		req.ImageURL, prodID,
@@ -363,8 +414,9 @@ func (h *Handler) UpdateProduct(c *fiber.Ctx) error {
 	}
 
 	return response.JSON(c, fiber.StatusOK, fiber.Map{
-		"id":      prodID,
-		"message": "Producto actualizado con éxito",
+		"id":        prodID,
+		"image_url": req.ImageURL,
+		"message":   "Producto actualizado con éxito en PostgreSQL",
 	})
 }
 
@@ -1215,3 +1267,365 @@ func (h *Handler) GetPortalPreventive(c *fiber.Ctx) error {
 
 	return response.JSON(c, fiber.StatusOK, resp)
 }
+
+// =========================================================
+// 8. APP MÓVIL FLUTTER: ESCANEO, INVENTARIO, POS & MEDIA DB
+// =========================================================
+
+func (h *Handler) GetProductByBarcode(c *fiber.Ctx) error {
+	code := strings.TrimSpace(c.Params("code"))
+	if code == "" {
+		return response.Error(c, fiber.StatusBadRequest, "MISSING_CODE", "Debe proporcionar el código de barras o SKU")
+	}
+
+	query := `
+		SELECT p.id, p.sku, COALESCE(p.barcode, ''), p.name, COALESCE(p.description, ''),
+		       p.category_id, p.brand_id, p.presentation, p.purchase_price, p.sale_price, 
+		       p.stock_current, p.stock_min, COALESCE(p.image_url, ''), p.technical_specs, 
+		       b.name as brand_name, c.name as category_name
+		FROM products p
+		JOIN brands b ON p.brand_id = b.id
+		JOIN categories c ON p.category_id = c.id
+		WHERE p.is_active = true
+		  AND (p.barcode = $1 OR UPPER(p.sku) = UPPER($1))
+		LIMIT 1`
+
+	var p domain.Product
+	var specs []byte
+	err := h.db.QueryRow(c.Context(), query, code).Scan(
+		&p.ID, &p.SKU, &p.Barcode, &p.Name, &p.Description,
+		&p.CategoryID, &p.BrandID, &p.Presentation, &p.PurchasePrice, &p.SalePrice,
+		&p.StockCurrent, &p.StockMin, &p.ImageURL, &specs,
+		&p.BrandName, &p.CategoryName,
+	)
+
+	if err != nil {
+		return response.JSON(c, fiber.StatusOK, fiber.Map{
+			"found":   false,
+			"barcode": code,
+		})
+	}
+
+	if len(specs) > 0 {
+		_ = json.Unmarshal(specs, &p.TechnicalSpecs)
+	}
+
+	return response.JSON(c, fiber.StatusOK, fiber.Map{
+		"found":   true,
+		"product": p,
+	})
+}
+
+func (h *Handler) ScanSyncInventory(c *fiber.Ctx) error {
+	var req domain.ScanInventorySyncRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "INVALID_PAYLOAD", "Datos de sincronización inválidos", err.Error())
+	}
+
+	if req.ProductID == uuid.Nil {
+		return response.Error(c, fiber.StatusBadRequest, "MISSING_PRODUCT", "ID de producto requerido")
+	}
+	if req.Quantity.LessThanOrEqual(decimal.Zero) && req.MovementType != "SET_STOCK" {
+		return response.Error(c, fiber.StatusBadRequest, "INVALID_QTY", "La cantidad debe ser mayor a cero")
+	}
+
+	tx, err := h.db.Begin(c.Context())
+	if err != nil {
+		return response.Error(c, fiber.StatusInternalServerError, "TX_ERROR", "No se pudo iniciar transacción")
+	}
+	defer tx.Rollback(c.Context())
+
+	var stockBefore, purchaseCost decimal.Decimal
+	var prodName, prodSKU string
+	err = tx.QueryRow(c.Context(), `
+		SELECT name, sku, stock_current, purchase_price
+		FROM products WHERE id = $1 AND is_active = true FOR UPDATE
+	`, req.ProductID).Scan(&prodName, &prodSKU, &stockBefore, &purchaseCost)
+	if err != nil {
+		return response.Error(c, fiber.StatusNotFound, "NOT_FOUND", "Producto no encontrado")
+	}
+
+	stockAfter := stockBefore
+	movType := req.MovementType
+	qtyDiff := req.Quantity
+
+	switch req.MovementType {
+	case "IN_PURCHASE", "ADJUSTMENT_POS":
+		stockAfter = stockBefore.Add(req.Quantity)
+	case "ADJUSTMENT_NEG", "OUT_WASTE":
+		if stockBefore.LessThan(req.Quantity) {
+			return response.Error(c, fiber.StatusBadRequest, "INSUFFICIENT_STOCK", "El stock resultante no puede ser negativo")
+		}
+		stockAfter = stockBefore.Sub(req.Quantity)
+	case "SET_STOCK":
+		stockAfter = req.Quantity
+		if stockAfter.GreaterThanOrEqual(stockBefore) {
+			movType = "ADJUSTMENT_POS"
+			qtyDiff = stockAfter.Sub(stockBefore)
+		} else {
+			movType = "ADJUSTMENT_NEG"
+			qtyDiff = stockBefore.Sub(stockAfter)
+		}
+	default:
+		movType = "IN_PURCHASE"
+		stockAfter = stockBefore.Add(req.Quantity)
+	}
+
+	unitCost := req.UnitCost
+	if unitCost.LessThanOrEqual(decimal.Zero) {
+		unitCost = purchaseCost
+	}
+
+	refDoc := strings.TrimSpace(req.Notes)
+	if refDoc == "" {
+		refDoc = "ESCANEO APP MÓVIL FLUTTER"
+	}
+
+	_, err = tx.Exec(c.Context(), `
+		UPDATE products SET stock_current = $1, purchase_price = $2, updated_at = NOW() WHERE id = $3
+	`, stockAfter, unitCost, req.ProductID)
+	if err != nil {
+		return response.Error(c, fiber.StatusInternalServerError, "UPDATE_ERROR", "Error actualizando stock")
+	}
+
+	if qtyDiff.GreaterThan(decimal.Zero) {
+		_, err = tx.Exec(c.Context(), `
+			INSERT INTO inventory_movements (product_id, movement_type, quantity, stock_before, stock_after, unit_cost, reference_doc)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, req.ProductID, movType, qtyDiff, stockBefore, stockAfter, unitCost, refDoc)
+		if err != nil {
+			return response.Error(c, fiber.StatusInternalServerError, "KARDEX_ERROR", "Error registrando Kardex", err.Error())
+		}
+	}
+
+	if err := tx.Commit(c.Context()); err != nil {
+		return response.Error(c, fiber.StatusInternalServerError, "COMMIT_ERROR", "Error confirmando sincronización")
+	}
+
+	return response.JSON(c, fiber.StatusOK, fiber.Map{
+		"product_id":   req.ProductID,
+		"product_name": prodName,
+		"sku":          prodSKU,
+		"stock_before": stockBefore,
+		"stock_after":  stockAfter,
+		"message":      "Inventario sincronizado con éxito en PostgreSQL",
+	})
+}
+
+func (h *Handler) PushPosScan(c *fiber.Ctx) error {
+	var req domain.PosScanRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "INVALID_PAYLOAD", "Datos de escaneo inválidos")
+	}
+
+	code := strings.TrimSpace(req.Barcode)
+	if code == "" {
+		return response.Error(c, fiber.StatusBadRequest, "MISSING_BARCODE", "Código de barras o SKU requerido")
+	}
+	if req.Quantity.LessThanOrEqual(decimal.Zero) {
+		req.Quantity = decimal.NewFromInt(1)
+	}
+	if req.SessionID == "" {
+		req.SessionID = "MAIN"
+	}
+
+	var p domain.Product
+	var specs []byte
+	query := `
+		SELECT p.id, p.sku, COALESCE(p.barcode, ''), p.name, COALESCE(p.description, ''),
+		       p.category_id, p.brand_id, p.presentation, p.purchase_price, p.sale_price, 
+		       p.stock_current, p.stock_min, COALESCE(p.image_url, ''), p.technical_specs, 
+		       b.name as brand_name, c.name as category_name
+		FROM products p
+		JOIN brands b ON p.brand_id = b.id
+		JOIN categories c ON p.category_id = c.id
+		WHERE p.is_active = true
+		  AND (p.barcode = $1 OR UPPER(p.sku) = UPPER($1) OR p.id::text = $1)
+		LIMIT 1`
+
+	err := h.db.QueryRow(c.Context(), query, code).Scan(
+		&p.ID, &p.SKU, &p.Barcode, &p.Name, &p.Description,
+		&p.CategoryID, &p.BrandID, &p.Presentation, &p.PurchasePrice, &p.SalePrice,
+		&p.StockCurrent, &p.StockMin, &p.ImageURL, &specs,
+		&p.BrandName, &p.CategoryName,
+	)
+	if err != nil {
+		return response.Error(c, fiber.StatusNotFound, "PRODUCT_NOT_FOUND", fmt.Sprintf("No se encontró producto activo con el código '%s'", code))
+	}
+	if len(specs) > 0 {
+		_ = json.Unmarshal(specs, &p.TechnicalSpecs)
+	}
+
+	if p.StockCurrent.LessThan(req.Quantity) {
+		return response.Error(c, fiber.StatusBadRequest, "OUT_OF_STOCK", fmt.Sprintf("Stock insuficiente para %s (Disponible: %s)", p.Name, p.StockCurrent.StringFixed(0)))
+	}
+
+	var scanID uuid.UUID
+	err = h.db.QueryRow(c.Context(), `
+		INSERT INTO pos_scan_queue (product_id, barcode, quantity, session_id, consumed)
+		VALUES ($1, $2, $3, $4, false)
+		RETURNING id
+	`, p.ID, code, req.Quantity, req.SessionID).Scan(&scanID)
+	if err != nil {
+		return response.Error(c, fiber.StatusInternalServerError, "QUEUE_ERROR", "No se pudo encolar el escaneo hacia el POS Web", err.Error())
+	}
+
+	return response.JSON(c, fiber.StatusOK, fiber.Map{
+		"scan_id":  scanID,
+		"quantity": req.Quantity,
+		"product":  p,
+		"message":  "Producto enviado automáticamente al carrito del POS Web",
+	})
+}
+
+func (h *Handler) ConsumePosScanQueue(c *fiber.Ctx) error {
+	sessionID := c.Query("session_id", "MAIN")
+
+	query := `
+		WITH consumed_rows AS (
+			UPDATE pos_scan_queue
+			SET consumed = true
+			WHERE id IN (
+				SELECT id FROM pos_scan_queue
+				WHERE consumed = false AND session_id = $1
+				ORDER BY created_at ASC
+				LIMIT 20
+			)
+			RETURNING id, product_id, quantity, created_at
+		)
+		SELECT cr.id, cr.quantity, cr.created_at,
+		       p.id, p.sku, COALESCE(p.barcode, ''), p.name, COALESCE(p.description, ''),
+		       p.category_id, p.brand_id, p.presentation, p.purchase_price, p.sale_price, 
+		       p.stock_current, p.stock_min, COALESCE(p.image_url, ''), p.technical_specs, 
+		       b.name as brand_name, c.name as category_name
+		FROM consumed_rows cr
+		JOIN products p ON cr.product_id = p.id
+		JOIN brands b ON p.brand_id = b.id
+		JOIN categories c ON p.category_id = c.id
+		ORDER BY cr.created_at ASC`
+
+	rows, err := h.db.Query(c.Context(), query, sessionID)
+	if err != nil {
+		return response.JSON(c, fiber.StatusOK, []domain.PosScanEventItem{})
+	}
+	defer rows.Close()
+
+	var events []domain.PosScanEventItem
+	for rows.Next() {
+		var ev domain.PosScanEventItem
+		var specs []byte
+		err := rows.Scan(
+			&ev.ScanID, &ev.Quantity, &ev.ScannedAt,
+			&ev.Product.ID, &ev.Product.SKU, &ev.Product.Barcode, &ev.Product.Name, &ev.Product.Description,
+			&ev.Product.CategoryID, &ev.Product.BrandID, &ev.Product.Presentation, &ev.Product.PurchasePrice, &ev.Product.SalePrice,
+			&ev.Product.StockCurrent, &ev.Product.StockMin, &ev.Product.ImageURL, &specs,
+			&ev.Product.BrandName, &ev.Product.CategoryName,
+		)
+		if err == nil {
+			if len(specs) > 0 {
+				_ = json.Unmarshal(specs, &ev.Product.TechnicalSpecs)
+			}
+			events = append(events, ev)
+		}
+	}
+
+	if events == nil {
+		events = []domain.PosScanEventItem{}
+	}
+
+	return response.JSON(c, fiber.StatusOK, events)
+}
+
+func (h *Handler) UploadMediaImage(c *fiber.Ctx) error {
+	var filename, mimeType string
+	var imgBytes []byte
+
+	// Soporta tanto multipart/form-data (campo "file") como JSON Base64
+	fileHeader, err := c.FormFile("file")
+	if err == nil && fileHeader != nil {
+		filename = fileHeader.Filename
+		mimeType = fileHeader.Header.Get("Content-Type")
+		if mimeType == "" {
+			mimeType = "image/jpeg"
+		}
+		f, openErr := fileHeader.Open()
+		if openErr != nil {
+			return response.Error(c, fiber.StatusBadRequest, "FILE_OPEN_ERR", "No se pudo abrir la imagen enviada")
+		}
+		defer f.Close()
+		imgBytes, err = io.ReadAll(f)
+		if err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "FILE_READ_ERR", "Error leyendo bytes de la imagen")
+		}
+	} else {
+		var req domain.MediaUploadBase64Request
+		if parseErr := c.BodyParser(&req); parseErr != nil || req.Base64Data == "" {
+			return response.Error(c, fiber.StatusBadRequest, "INVALID_UPLOAD", "Envíe un archivo multipart 'file' o un JSON con 'base64_data'")
+		}
+		filename = req.Filename
+		if filename == "" {
+			filename = "mobile_upload.jpg"
+		}
+		mimeType = req.MimeType
+		if mimeType == "" {
+			mimeType = "image/jpeg"
+		}
+		cleanB64 := req.Base64Data
+		if idx := strings.Index(cleanB64, ","); idx != -1 {
+			cleanB64 = cleanB64[idx+1:]
+		}
+		imgBytes, err = base64.StdEncoding.DecodeString(cleanB64)
+		if err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "BASE64_ERR", "Formato Base64 inválido")
+		}
+	}
+
+	if len(imgBytes) == 0 {
+		return response.Error(c, fiber.StatusBadRequest, "EMPTY_IMAGE", "El archivo de imagen está vacío")
+	}
+
+	var mediaID uuid.UUID
+	err = h.db.QueryRow(c.Context(), `
+		INSERT INTO media_blobs (filename, mime_type, data, size_bytes)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, filename, mimeType, imgBytes, len(imgBytes)).Scan(&mediaID)
+	if err != nil {
+		return response.Error(c, fiber.StatusInternalServerError, "DB_MEDIA_ERROR", "No se pudo almacenar la imagen en PostgreSQL", err.Error())
+	}
+
+	imageURL := fmt.Sprintf("/v1/media/%s", mediaID.String())
+	return response.JSON(c, fiber.StatusCreated, fiber.Map{
+		"id":         mediaID,
+		"url":        imageURL,
+		"size_bytes": len(imgBytes),
+		"message":    "Imagen guardada en PostgreSQL exitosamente",
+	})
+}
+
+func (h *Handler) GetMediaImage(c *fiber.Ctx) error {
+	idParam := c.Params("id")
+	// Permitir que tenga extensión opcional, ej: /v1/media/uuid.jpg
+	if dotIdx := strings.Index(idParam, "."); dotIdx != -1 {
+		idParam = idParam[:dotIdx]
+	}
+
+	mediaID, err := uuid.Parse(idParam)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("ID de imagen inválido")
+	}
+
+	var mimeType string
+	var data []byte
+	err = h.db.QueryRow(c.Context(), `
+		SELECT mime_type, data FROM media_blobs WHERE id = $1
+	`, mediaID).Scan(&mimeType, &data)
+	if err != nil || len(data) == 0 {
+		return c.Status(fiber.StatusNotFound).SendString("Imagen no encontrada")
+	}
+
+	c.Set("Content-Type", mimeType)
+	c.Set("Cache-Control", "public, max-age=31536000, immutable")
+	return c.Status(fiber.StatusOK).Send(data)
+}
+

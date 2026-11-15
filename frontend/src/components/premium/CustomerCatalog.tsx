@@ -11,6 +11,7 @@ interface Product {
   presentation: string;
   sale_price: string | number;
   stock_current: string | number;
+  image_url?: string;
   brand_name: string;
   category_name: string;
   technical_specs?: {
@@ -58,6 +59,9 @@ export function CustomerCatalog() {
   });
 
   const getProductImage = (prod: Product) => {
+    if (prod.image_url && prod.image_url.trim() !== "") {
+      return prod.image_url;
+    }
     const cat = (prod.category_name || "").toLowerCase();
     const name = (prod.name || "").toLowerCase();
     if (cat.includes("sintétic") || name.includes("0w-") || name.includes("5w-30") || name.includes("sint")) {
@@ -166,12 +170,13 @@ export function CustomerCatalog() {
                   {/* Product Image Frame */}
                   <div className="relative w-full h-44 my-3 flex items-center justify-center overflow-hidden rounded-2xl bg-ink-900/60 border border-white/5 group-hover:border-ember-500/30 transition-all">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(242,106,27,0.15),transparent_70%)] group-hover:scale-125 transition-transform duration-500" />
-                    <Image
+                    <img
                       src={imgUrl}
                       alt={prod.name}
-                      width={180}
-                      height={140}
                       className="object-contain max-h-36 drop-shadow-2xl group-hover:scale-110 group-hover:rotate-1 transition-all duration-500"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = "/media/line-synthetic.png";
+                      }}
                     />
                     <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-ember-400 flex items-center gap-1 border border-white/10">
                       <Eye className="w-3 h-3" />
@@ -285,12 +290,13 @@ export function CustomerCatalog() {
               {/* Product Visual Showcase Frame */}
               <div className="relative w-full h-52 rounded-2xl bg-ink-900 border border-white/10 flex items-center justify-center overflow-hidden">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(242,106,27,0.2),transparent_70%)]" />
-                <Image
+                <img
                   src={getProductImage(modalProduct)}
                   alt={modalProduct.name}
-                  width={240}
-                  height={180}
                   className="object-contain max-h-44 drop-shadow-2xl z-10"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = "/media/line-synthetic.png";
+                  }}
                 />
                 <div className="absolute bottom-3 left-4 z-10 flex items-center gap-2 text-[10px] font-mono text-emerald-400 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-emerald-500/30">
                   <CheckCircle className="w-3.5 h-3.5" /> Stock Inmediato: {Number(modalProduct.stock_current)} disponibles

@@ -165,6 +165,9 @@ export default function POSPage() {
     { product: POS_CATALOG[6], quantity: 1 },
   ]);
 
+  const [catalogProducts, setCatalogProducts] = useState<PosProduct[]>(POS_CATALOG);
+  const [lastScannedBanner, setLastScannedBanner] = useState<string | null>(null);
+
   const [searchProduct, setSearchProduct] = useState("");
   const [selectedCat, setSelectedCat] = useState("TODOS");
 
@@ -173,6 +176,90 @@ export default function POSPage() {
   const [lastSaleResult, setLastSaleResult] = useState<SaleResult | null>(null);
   const [showThermalTicket, setShowThermalTicket] = useState(false);
   const [saleSuccessBanner, setSaleSuccessBanner] = useState<string | null>(null);
+
+  const fetchPosCatalog = async () => {
+    try {
+      const res = await fetch("/v1/products");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        const mapped: PosProduct[] = data.data.map((p: any) => {
+          const catRaw = (p.category_name || "").toLowerCase();
+          let catLabel = "Sintéticos";
+          if (catRaw.includes("semi")) catLabel = "Semisintéticos";
+          else if (catRaw.includes("mineral")) catLabel = "Minerales";
+          else if (catRaw.includes("filtro")) catLabel = "Filtros";
+          else if (catRaw.includes("aditivo") || catRaw.includes("freno") || catRaw.includes("refrig")) catLabel = "Aditivos";
+
+          return {
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            presentation: p.presentation || "1 Unidad",
+            price: Number(p.sale_price),
+            stock: Number(p.stock_current),
+            viscosity: p.technical_specs?.viscosity || "5W-30",
+            brand: p.brand_name || "Estrada",
+            category: catLabel,
+            image_url: p.image_url || "/media/line-synthetic.png",
+          };
+        });
+        setCatalogProducts(mapped);
+      }
+    } catch {
+      // Fallback to POS_CATALOG
+    }
+  };
+
+  useEffect(() => {
+    fetchPosCatalog();
+  }, []);
+
+  // Sincronización en Tiempo Real con Escáner de App Móvil Flutter
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/v1/pos/scan-queue?session_id=MAIN");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          json.data.forEach((ev: any) => {
+            const p = ev.product;
+            if (!p || !p.id) return;
+            const qty = Math.max(1, Number(ev.quantity) || 1);
+            const posProd: PosProduct = {
+              id: p.id,
+              sku: p.sku,
+              name: p.name,
+              presentation: p.presentation || "1 Unidad",
+              price: Number(p.sale_price),
+              stock: Number(p.stock_current),
+              viscosity: p.technical_specs?.viscosity || "5W-30",
+              brand: p.brand_name || "Estrada",
+              category: "Sintéticos",
+              image_url: p.image_url || "/media/line-synthetic.png",
+            };
+
+            setCart((prev) => {
+              const exists = prev.find((i) => i.product.id === posProd.id);
+              if (exists) {
+                return prev.map((i) =>
+                  i.product.id === posProd.id ? { ...i, quantity: i.quantity + qty } : i
+                );
+              }
+              return [...prev, { product: posProd, quantity: qty }];
+            });
+
+            setLastScannedBanner(`📱 Escaneado desde App Móvil: ${posProd.name} (+${qty} unid.) — S/ ${posProd.price.toFixed(2)}`);
+          });
+          fetchPosCatalog();
+        }
+      } catch {
+        // Ignore polling errors silently
+      }
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (docType === "01") setSeries("F001");
@@ -273,7 +360,8 @@ export default function POSPage() {
       const result = await submitSale(payload);
       setLastSaleResult(result);
       setShowThermalTicket(true);
-      setSaleSuccessBanner(`¡Venta registrada con éxito! Comprobante emitido: ${result.full_number} por S/ ${totalAmount.toFixed(2)}`);
+      setSaleSuccessBanner(`¡Venta registrada con éxito y stock descontado! Comprobante emitido: ${result.full_number} por S/ ${totalAmount.toFixed(2)}`);
+      fetchPosCatalog();
     } catch {
       alert("Error procesando la venta");
     } finally {
@@ -281,7 +369,7 @@ export default function POSPage() {
     }
   };
 
-  const filteredProducts = POS_CATALOG.filter((p) => {
+  const filteredProducts = catalogProducts.filter((p) => {
     if (selectedCat !== "TODOS" && p.category !== selectedCat) return false;
     if (searchProduct) {
       const q = searchProduct.toLowerCase();
@@ -304,6 +392,23 @@ export default function POSPage() {
       }}
     >
       <div className="space-y-6">
+
+        {/* Live Mobile Scanner Sync Banner */}
+        {lastScannedBanner && (
+          <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex items-center justify-between shadow-lg animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-amber-400 flex-shrink-0" />
+              <span className="font-mono text-xs font-bold">{lastScannedBanner}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLastScannedBanner(null)}
+              className="text-[11px] font-mono text-amber-300 hover:text-white underline"
+            >
+              Ocultar
+            </button>
+          </div>
+        )}
 
         {/* Success Alert Banner when Sale is Registered */}
         {saleSuccessBanner && lastSaleResult && (
